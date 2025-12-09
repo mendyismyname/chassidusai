@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Library from './components/Library';
 import Reader from './components/Reader';
@@ -9,11 +8,14 @@ import Intro from './components/Intro';
 import ProfileModal from './components/ProfileModal';
 import WebcamWindow from './components/WebcamWindow';
 import WelcomeExperience from './components/WelcomeExperience';
+import LoginPage from './src/pages/LoginPage'; // Import LoginPage
+import { useSession } from './src/components/SessionContextProvider'; // Import useSession
 import { Settings, Book, AIState } from './types';
 import { LIBRARY, SAMPLE_TEXT, SAMPLE_TEXT_TITLE } from './constants';
 import { chatWithAI } from './services/geminiService';
+import { supabase } from './integrations/supabase/client'; // Import supabase client
 
-// Cookie Helpers
+// Cookie Helpers (Keep for API Key, as it's client-side for security)
 const setCookie = (name: string, value: string, days: number) => {
   let expires = "";
   if (days) {
@@ -38,6 +40,8 @@ const getCookie = (name: string) => {
 const FREE_LIMIT = 3;
 
 const App: React.FC = () => {
+  const { session, user, profile, isLoading: isSessionLoading, fetchProfile } = useSession();
+
   // --- State ---
   const [showIntro, setShowIntro] = useState(true);
   
@@ -50,11 +54,7 @@ const App: React.FC = () => {
     apiKey: getCookie('chassidus_ai_key') || '', // Load from cookie
     dailyUsageCount: 0,
     lastUsageDate: new Date().toISOString().split('T')[0],
-    progress: [
-      { bookId: 'toras-chaim', percentage: 12, lastReadDate: new Date().toISOString() },
-      { bookId: 'tanya', percentage: 45, lastReadDate: new Date().toISOString() },
-      { bookId: 'baal-shem-tov', percentage: 5, lastReadDate: new Date().toISOString() },
-    ]
+    progress: [] // Progress will be fetched from Supabase or initialized
   });
 
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
@@ -78,6 +78,22 @@ const App: React.FC = () => {
   const [selectedTextForAI, setSelectedTextForAI] = useState<string>("");
   const [markedContext, setMarkedContext] = useState<string>(SAMPLE_TEXT);
 
+  // Load user settings and progress from profile or local storage
+  useEffect(() => {
+    if (profile) {
+      setSettings(prev => ({
+        ...prev,
+        theme: profile.theme || prev.theme,
+        fontSize: profile.font_size || prev.fontSize,
+        lineHeight: profile.line_height || prev.lineHeight,
+        translationMode: profile.translation_mode || prev.translationMode,
+        textAlign: profile.text_align || prev.textAlign,
+        progress: profile.progress || prev.progress,
+        // API Key remains client-side (cookie) for security
+      }));
+    }
+  }, [profile]);
+
   // Check and Reset Daily Usage (Still tracked, but unlimited for key users)
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -92,9 +108,24 @@ const App: React.FC = () => {
 
   // --- Handlers ---
 
-  const handleBookSelect = (book: Book) => {
+  const handleBookSelect = async (book: Book) => {
     setCurrentBook(book);
     setIsLibraryOpen(false); 
+
+    // Fetch book content from Supabase
+    const { data, error } = await supabase
+      .from('texts')
+      .select('content')
+      .eq('id', book.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching book content:', error);
+      // Fallback to sample text if fetching fails
+      setMarkedContext(SAMPLE_TEXT);
+    } else if (data) {
+      setMarkedContext(data.content);
+    }
   };
 
   const handleStartLearning = () => {
@@ -112,7 +143,7 @@ const App: React.FC = () => {
     setScrollToChunkId(null);
   };
 
-  const handleUpdateSettings = (newSettings: Partial<Settings>) => {
+  const handleUpdateSettings = async (newSettings: Partial<Settings>) => {
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
     
@@ -128,6 +159,28 @@ const App: React.FC = () => {
          if (lastMsg && lastMsg.role === 'user') {
             handleAskAI(lastMsg.content, 'full', undefined, newSettings.apiKey);
          }
+      }
+    }
+
+    // Update profile in Supabase if user is logged in
+    if (user) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          theme: updated.theme,
+          font_size: updated.fontSize,
+          line_height: updated.lineHeight,
+          translation_mode: updated.translationMode,
+          text_align: updated.textAlign,
+          progress: updated.progress, // Assuming progress is also part of settings
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error('Error updating profile settings:', error);
+      } else {
+        fetchProfile(); // Refresh profile data
       }
     }
   };
@@ -210,6 +263,18 @@ const App: React.FC = () => {
      }
   };
 
+  if (isSessionLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-white dark:bg-[#050505]">
+        <p className="text-lg font-serif opacity-50">Loading application...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginPage />;
+  }
+
   return (
     <>
       {showIntro && <Intro onComplete={() => setShowIntro(false)} />}
@@ -233,6 +298,8 @@ const App: React.FC = () => {
             onUpdateSettings={handleUpdateSettings}
             onClose={() => setIsProfileOpen(false)}
             theme={settings.theme}
+            profile={profile} // Pass profile data
+            fetchProfile={fetchProfile} // Pass fetchProfile to update profile
           />
         )}
 
@@ -244,13 +311,14 @@ const App: React.FC = () => {
             toggleLibrary={() => setIsLibraryOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
             onGoHome={handleGoHome}
+            user={user} // Pass user to TopNav
           />
 
           <div className="flex-1 h-full relative">
             {currentBook ? (
               <Reader 
-                text={SAMPLE_TEXT} // In real app, load book text by ID
-                title={currentBook.id === 'toras-chaim' ? SAMPLE_TEXT_TITLE : currentBook.title}
+                text={markedContext} // Use markedContext which can be fetched from Supabase
+                title={currentBook.title} // Use currentBook title
                 settings={settings}
                 onTextSelect={handleOpenAIWithSelection}
                 onAskAI={(query) => handleAskAI(query, 'selection')}
@@ -261,6 +329,8 @@ const App: React.FC = () => {
                 onCloseMenu={() => setIsMenuOpen(false)}
                 scrollToChunkId={scrollToChunkId}
                 onContextUpdate={setMarkedContext}
+                currentBookId={currentBook.id} // Pass current book ID to Reader
+                userId={user?.id || null} // Pass user ID to Reader
               />
             ) : (
               <WelcomeExperience 
