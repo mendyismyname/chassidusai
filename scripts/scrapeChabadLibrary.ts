@@ -130,7 +130,13 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             hrs.forEach(hr => hr.remove());
 
             // E. Extract Text
-            const rawText = clone.innerText;
+            let rawText = clone.innerText;
+
+            // --- ARTIFACT REMOVAL ---
+            // Remove the breadcrumb trail that gets stuck to the start of the text
+            // Matches anything ending with "<<" or ">>" at the start of the string
+            rawText = rawText.replace(/^.*?(?:<<|>>)/s, ''); 
+
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
 
