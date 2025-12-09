@@ -1,4 +1,3 @@
-
 import { BookCategory } from './types';
 
 export const LIBRARY: BookCategory[] = [
@@ -29,7 +28,7 @@ export const LIBRARY: BookCategory[] = [
       { id: 'biurei-hamilot', title: 'פירוש המילות', category: 'Deep' },
       { id: 'shaarei-orah', title: 'שערי אורה', category: 'Deep' },
       { id: 'shaarei-teshuvah', title: 'שערי תשובה', category: 'Deep' },
-      { id: 'toras-chaim', title: 'תורת חיים', category: 'Deep' },
+      { id: 'a1b2c3d4-e5f6-7890-1234-567890abcdef', title: 'תורת חיים', category: 'Deep' },
     ]
   }
 ];
@@ -51,7 +50,7 @@ export const SELECTION_HIGHLIGHT_COLOR = {
 };
 
 export const MOCK_TRANSLATION = [
-  "In the beginning He created etc. Let there be a firmament in the midst of the waters etc. It is written: <b>Wisdoms cry out in the street</b>; the aspect of <i>Chochmah Ila'ah</i> (Supernal Wisdom) which is drawn into <i>Chochmah Tata'ah</i> (Lower Wisdom) to clarify the clarifications of the Tree of Knowledge etc., which is called <i>Mah</i> and this is called <i>Ban</i> etc., and this is sufficient for the wise.",
+  "In the beginning He created etc. It is written: <b>Wisdoms cry out in the street</b>; the aspect of <i>Chochmah Ila'ah</i> (Supernal Wisdom) which is drawn into <i>Chochmah Tata'ah</i> (Lower Wisdom) to clarify the clarifications of the Tree of Knowledge etc., which is called <i>Mah</i> and this is called <i>Ban</i> etc., and this is sufficient for the wise.",
   "And we must first explain what is written: <b>In the beginning He created</b>—for the sake of the Torah which is called <b>Beginning</b> etc. And ostensibly, it is understood from this that He created with the Wisdom of the Torah, for <b>Beginning</b> is the aspect of Wisdom, and concerning the Torah it is said: <b>The Lord acquired me as the beginning of His way</b>.",
   "And what is written <b>In the beginning (B'reishit)</b>—with Wisdom; and similarly it is said: <b>B'reishit</b> is also a specific Utterance. This is the aspect of <i>Chochmah Tata'ah</i>, as in <b>The Lord founded the earth with Wisdom</b>; <b>You made them all with Wisdom</b>.",
   "And this is <b>In the beginning</b>—with the Utterance of <b>B'reishit</b>. As it is written: <b>And is it not that it could have been created with one Utterance?</b> And this is the aspect of Wisdom within the Speech of the Ten Utterances, which is called Wisdom at the end, which is rooted in Wisdom in the beginning (in the head), which is the source of Wisdom within Speech.",
