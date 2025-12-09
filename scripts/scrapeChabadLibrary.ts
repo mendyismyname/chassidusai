@@ -73,7 +73,8 @@ async function fetchPage(url: string): Promise<cheerio.CheerioAPI | null> {
     }
 
     const contentType = response.headers.get('content-type');
-    let htmlBuffer = await response.buffer();
+    const arrayBuffer = await response.arrayBuffer();
+    let htmlBuffer = Buffer.from(arrayBuffer);
     let decodedHtml = '';
 
     // Force decode windows-1255 if detected or if it's likely Hebrew legacy
