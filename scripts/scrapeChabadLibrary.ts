@@ -133,9 +133,9 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             let rawText = clone.innerText;
 
             // --- ARTIFACT REMOVAL ---
-            // Remove the breadcrumb trail that gets stuck to the start of the text
-            // Matches anything ending with "<<" or ">>" at the start of the string
-            rawText = rawText.replace(/^.*?(?:<<|>>)/s, ''); 
+            // Remove everything up to the navigation arrows
+            // Also remove the Chapter Letter if it's stuck to the arrow (e.g. ">>Aleph")
+            rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]?)(\s+)?/s, ''); 
 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
