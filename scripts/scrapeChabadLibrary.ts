@@ -167,6 +167,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
 }
 
 // --- Surf Mode ---
+// --- Surf Mode (With Loop Protection) ---
 async function surfLinear(
     page: Page, 
     startUrl: string, 
@@ -177,25 +178,46 @@ async function surfLinear(
 ) {
     let currentUrl: string | null = startUrl;
     let sequence = startSeq;
+    const sessionVisited = new Set<string>(); // Local loop protection
 
     console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
 
     while (currentUrl) {
+        // 1. Global History Check
         if (globalVisited.has(currentUrl)) {
-             console.log("        🔄 Page already visited. Stopping surf.");
+             console.log("        🔄 Page already visited (Global). Stopping surf.");
              break;
         }
+        
+        // 2. Session Loop Check (Immediate Cycle)
+        if (sessionVisited.has(currentUrl)) {
+             console.log("        🔄 Page loop detected (Session). Stopping surf.");
+             break;
+        }
+
         globalVisited.add(currentUrl);
+        sessionVisited.add(currentUrl);
 
         try {
             await page.goto(currentUrl, { waitUntil: 'networkidle2' });
             const analysis = await analyzePage(page, []);
             
             if (analysis.type === 'CONTENT' && analysis.segments) {
+                
+                // --- 3. LOGIC LOOP CHECK: Did we jump back to the start? ---
+                // If we are deep in the book (seq > 5) and the page title contains "Haskama" or "Chelek Rishon" 
+                // when we were just in "Hosafos", it's a reset loop.
+                const titleLower = (analysis.pageTitle || '').toLowerCase();
+                const isStartPage = titleLower.includes('הסכמה') || titleLower.includes('introduction');
+                
+                if (sequence > 5 && isStartPage) {
+                    console.log("        🛑 Loop detected: Jumped back to Introduction. Stopping.");
+                    break;
+                }
+                // -----------------------------------------------------------
+
                 const title = `${baseTitle} - Part ${sequence}`; 
                 const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
-                
-                // Pass the CLEANED segments directly
                 const count = await insertSegments(chapId, analysis.segments);
                 console.log(`        📄 Saved Part ${sequence} (${count} segments)`);
                 
@@ -204,11 +226,11 @@ async function surfLinear(
                 if (analysis.nextUrl && analysis.nextUrl !== currentUrl) {
                     currentUrl = analysis.nextUrl;
                 } else {
-                    console.log("        🛑 End of Book (No '>>' or 'Next' link found).");
+                    console.log("        🛑 End of Book (No 'Next' link found).");
                     currentUrl = null;
                 }
             } else {
-                console.log("        ⚠️ Text content lost. Stopping surf.");
+                console.log("        ⚠️ Text content lost or page is Index. Stopping surf.");
                 currentUrl = null;
             }
         } catch (e) {
