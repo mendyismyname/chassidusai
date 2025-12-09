@@ -100,29 +100,36 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
         let cleanedSegments: string[] = [];
         
         if (bestTextEl) {
-            // Clone the node so we don't break the live page
             const clone = bestTextEl.cloneNode(true) as HTMLElement;
 
-            // A. Remove Headers (h1-h6) - These are titles, not content
+            // A. Remove Headers
             const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
             headers.forEach(h => h.remove());
 
-            // B. Remove Breadcrumbs / Navigation within the content
-            // Logic: Remove any div/span that contains "Home" (דף הבית) or "Back" (חזור)
-            const allElements = clone.querySelectorAll('*');
-            allElements.forEach(el => {
+            // B. Remove Breadcrumbs / Navigation / Menus
+            // We search for lists that look like menus (ul/ol with links)
+            const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
+            lists.forEach(l => l.remove());
+
+            // C. Remove Specific "Junk" Containers by Text Content
+            // If an element contains the entire list of authors (Baal Shem Tov... Maggid...), kill it.
+            const allDivs = clone.querySelectorAll('div, span, p');
+            allDivs.forEach(el => {
                 const txt = (el as HTMLElement).innerText || '';
+                // Aggressive Menu Detection
+                if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) {
+                    el.remove();
+                }
                 if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) {
                     el.remove();
                 }
             });
 
-            // C. Remove Separators (HR)
+            // D. Remove Separators
             const hrs = clone.querySelectorAll('hr');
             hrs.forEach(hr => hr.remove());
 
-            // D. Extract Text
-            // We get innerText, which preserves newlines for <br> and block elements
+            // E. Extract Text
             const rawText = clone.innerText;
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
