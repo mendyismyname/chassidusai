@@ -28,7 +28,7 @@ serve(async (req) => {
     const document = parser.parseFromString(html, 'text/html');
 
     if (!document) {
-      console.error('Failed to parse HTML');
+      console.error('Failed to parse HTML: Document is null');
       return new Response(JSON.stringify({ error: 'Failed to parse HTML' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
@@ -36,25 +36,42 @@ serve(async (req) => {
     }
 
     const booksData: { author: string; title: string; url: string }[] = [];
-    const bookListItems = document.querySelectorAll('div.book-list-item');
-    console.log(`Found ${bookListItems.length} book-list-item elements.`);
+    const authorHeadings = document.querySelectorAll('h2'); // Select all H2 elements
 
-    bookListItems.forEach((item) => {
-      const authorElement = item.querySelector('h2');
-      const author = authorElement?.textContent?.trim() || 'Unknown Author';
+    console.log(`Found ${authorHeadings.length} potential author headings (H2s).`);
 
-      const bookLinks = item.querySelectorAll('ul > li > a');
-      bookLinks.forEach((link) => {
-        const title = link.textContent?.trim();
-        const url = (link as HTMLAnchorElement).href;
-        if (title && url) {
-          const absoluteUrl = new URL(url, libraryUrl).href;
-          booksData.push({ author, title, url: absoluteUrl });
+    authorHeadings.forEach((authorH2) => {
+      const author = authorH2.textContent?.trim();
+      if (!author) {
+        console.log('Skipping H2 with no text content.');
+        return; // Skip if no author name
+      }
+
+      // Find the next sibling element which is a UL
+      let nextSibling = authorH2.nextElementSibling;
+      while (nextSibling && nextSibling.tagName !== 'UL') {
+        nextSibling = nextSibling.nextElementSibling;
+      }
+
+      if (nextSibling && nextSibling.tagName === 'UL') {
+        const bookLinks = nextSibling.querySelectorAll('li > a');
+        if (bookLinks.length === 0) {
+          console.log(`Found author "${author}" but no books under the immediate UL sibling.`);
         }
-      });
+        bookLinks.forEach((link) => {
+          const title = link.textContent?.trim();
+          const url = (link as HTMLAnchorElement).href;
+          if (title && url) {
+            const absoluteUrl = new URL(url, libraryUrl).href;
+            booksData.push({ author, title, url: absoluteUrl });
+          }
+        });
+      } else {
+        console.log(`Found author "${author}" but no UL sibling immediately following.`);
+      }
     });
 
-    console.log(`Extracted ${booksData.length} books.`);
+    console.log(`Extracted ${booksData.length} books in total.`);
     return new Response(JSON.stringify({ books: booksData }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
