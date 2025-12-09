@@ -21,7 +21,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Fetching book sections from: ${bookUrl}`);
+    console.log(`Fetching book sections/links from: ${bookUrl}`);
     const response = await fetch(bookUrl);
     if (!response.ok) {
       console.error(`Failed to fetch book URL: ${response.statusText}`);
@@ -43,31 +43,33 @@ serve(async (req) => {
       });
     }
 
-    // Refined selectors to find section links within common content containers
-    const sectionLinks = document.querySelectorAll(
-      'div.book-content a[href*=".html"], ' +
-      'div#text_content a[href*=".html"], ' +
-      'article.main-text a[href*=".html"], ' +
-      '.text-body a[href*=".html"], ' +
-      'ul.book-toc a[href*=".html"]' // Added a specific TOC selector
+    // Select all <a> tags within common content containers
+    // This is a broader selection to capture more links for inspection
+    const allLinks = document.querySelectorAll(
+      'div.book-content a, ' +
+      'div#text_content a, ' +
+      'article.main-text a, ' +
+      '.text-body a, ' +
+      'ul.book-toc a, ' +
+      'div.content a' // Added a more general content div selector
     );
     
-    console.log(`Found ${sectionLinks.length} potential section links.`);
+    console.log(`Found ${allLinks.length} potential links on the page.`);
 
-    const sections: { title: string; url: string }[] = [];
+    const linksData: { title: string; url: string }[] = [];
 
-    sectionLinks.forEach((link) => {
+    allLinks.forEach((link) => {
       const title = link.textContent?.trim();
       const url = (link as HTMLAnchorElement).href;
       if (title && url) {
         // Ensure the URL is absolute
         const absoluteUrl = new URL(url, bookUrl).href;
-        sections.push({ title, url: absoluteUrl });
+        linksData.push({ title, url: absoluteUrl });
       }
     });
 
-    console.log(`Extracted ${sections.length} sections.`);
-    return new Response(JSON.stringify({ sections }), {
+    console.log(`Extracted ${linksData.length} links with title and URL.`);
+    return new Response(JSON.stringify({ links: linksData }), { // Changed 'sections' to 'links'
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

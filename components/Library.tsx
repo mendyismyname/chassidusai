@@ -23,7 +23,7 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
 
   // State for Chabad Library Scraper (for individual sections)
   const [chabadBookUrlInput, setChabadBookUrlInput] = useState('');
-  const [fetchedChabadSections, setFetchedChabadSections] = useState<{ title: string; url: string }[]>([]);
+  const [rawFetchedLinks, setRawFetchedLinks] = useState<{ title: string; url: string }[]>([]); // New state for raw links
   const [isLoadingChabadSections, setIsLoadingChabadSections] = useState(false);
   const [chabadScrapeError, setChabadScrapeError] = useState<string | null>(null);
   const [selectedOnlineSectionUrl, setSelectedOnlineSectionUrl] = useState<string | null>(null);
@@ -75,12 +75,12 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
     }
     setIsLoadingChabadSections(true);
     setChabadScrapeError(null);
-    setFetchedChabadSections([]);
+    setRawFetchedLinks([]); // Clear previous raw links
     try {
-      const sections = await fetchChabadBookSections(chabadBookUrlInput);
-      setFetchedChabadSections(sections);
+      const links = await fetchChabadBookSections(chabadBookUrlInput); // Now fetches all links
+      setRawFetchedLinks(links);
     } catch (error: any) {
-      setChabadScrapeError(`Failed to fetch sections: ${error.message}`);
+      setChabadScrapeError(`Failed to fetch links: ${error.message}`);
     } finally {
       setIsLoadingChabadSections(false);
     }
@@ -105,6 +105,14 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
     } finally {
       setIsLoadingChabadSections(false);
     }
+  };
+
+  const handleExploreAsBook = (url: string) => {
+    setChabadBookUrlInput(url); // Set the new URL in the input
+    setRawFetchedLinks([]); // Clear current links
+    setChabadScrapeError(null);
+    // Optionally, automatically fetch sections for the new URL
+    // handleFetchChabadSections(); 
   };
 
   // Combine hardcoded categories with fetched books
@@ -249,33 +257,40 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
                         disabled={isLoadingChabadSections || !chabadBookUrlInput}
                         className={`w-full py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-black hover:bg-black/10'} ${isLoadingChabadSections ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {isLoadingChabadSections ? 'Loading Sections...' : 'Fetch Sections'}
+                        {isLoadingChabadSections ? 'Loading Links...' : 'Fetch Links'}
                       </button>
                       {chabadScrapeError && (
                         <p className="text-red-500 text-xs">{chabadScrapeError}</p>
                       )}
                     </div>
 
-                    {fetchedChabadSections.length > 0 && (
+                    {rawFetchedLinks.length > 0 && (
                       <div className="mt-4 space-y-1">
-                        <p className="text-xs uppercase tracking-wider opacity-70 px-2">Sections:</p>
-                        {fetchedChabadSections.map((section, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handleLoadChabadSection(section.title, section.url)}
-                            className={`
-                              group w-full text-right px-4 py-2 rounded-md text-sm font-hebrew-serif transition-all duration-200 border border-transparent relative overflow-hidden
-                              ${selectedOnlineSectionUrl === section.url 
-                                ? 'bg-gray-200 dark:bg-gray-800 text-black dark:text-white font-bold'
-                                : 'hover:bg-gray-100 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
-                              }
-                              ${isDark ? 'text-gray-300' : 'text-gray-700'}
-                            `}
-                            disabled={isLoadingChabadSections}
-                          >
-                            {section.title}
-                          </button>
-                        ))}
+                        <p className="text-xs uppercase tracking-wider opacity-70 px-2">Found Links:</p>
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar border rounded-md p-2">
+                          {rawFetchedLinks.map((link, idx) => (
+                            <div key={idx} className={`flex flex-col gap-1 p-2 rounded-md ${isDark ? 'hover:bg-gray-900' : 'hover:bg-gray-50'}`}>
+                              <span className={`text-sm font-hebrew-serif ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{link.title}</span>
+                              <span className="text-xs opacity-50 truncate">{link.url}</span>
+                              <div className="flex gap-2 mt-1">
+                                <button
+                                  onClick={() => handleLoadChabadSection(link.title, link.url)}
+                                  className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${isDark ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                                  disabled={isLoadingChabadSections}
+                                >
+                                  Load as Section
+                                </button>
+                                <button
+                                  onClick={() => handleExploreAsBook(link.url)}
+                                  className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
+                                  disabled={isLoadingChabadSections}
+                                >
+                                  Explore as Book
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

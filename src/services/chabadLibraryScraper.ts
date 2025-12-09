@@ -21,8 +21,9 @@ export const fetchChabadBookSections = async (bookUrl: string): Promise<ChabadBo
       throw new Error(error.message);
     }
 
-    if (data && Array.isArray(data.sections)) {
-      return data.sections as ChabadBookSection[];
+    // Expecting 'links' instead of 'sections' now
+    if (data && Array.isArray(data.links)) {
+      return data.links as ChabadBookSection[];
     } else {
       throw new Error('Invalid data received from get-chabad-book-sections Edge Function');
     }
