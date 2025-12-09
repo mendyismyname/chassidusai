@@ -21,8 +21,10 @@ serve(async (req) => {
       });
     }
 
+    console.log(`Fetching book sections from: ${bookUrl}`);
     const response = await fetch(bookUrl);
     if (!response.ok) {
+      console.error(`Failed to fetch book URL: ${response.statusText}`);
       return new Response(JSON.stringify({ error: `Failed to fetch book URL: ${response.statusText}` }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: response.status,
@@ -34,16 +36,24 @@ serve(async (req) => {
     const document = parser.parseFromString(html, 'text/html');
 
     if (!document) {
+      console.error('Failed to parse HTML');
       return new Response(JSON.stringify({ error: 'Failed to parse HTML' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
       });
     }
 
-    // --- ASSUMPTIONS FOR CHABADLIBRARY.ORG BOOK SECTIONS STRUCTURE ---
-    // This selector attempts to find links that are likely sections.
-    // You might need to adjust this selector based on the actual HTML structure of chabadlibrary.org
-    const sectionLinks = document.querySelectorAll('a[href*="/books/"][href*=".html"]');
+    // Refined selectors to find section links within common content containers
+    const sectionLinks = document.querySelectorAll(
+      'div.book-content a[href*=".html"], ' +
+      'div#text_content a[href*=".html"], ' +
+      'article.main-text a[href*=".html"], ' +
+      '.text-body a[href*=".html"], ' +
+      'ul.book-toc a[href*=".html"]' // Added a specific TOC selector
+    );
+    
+    console.log(`Found ${sectionLinks.length} potential section links.`);
+
     const sections: { title: string; url: string }[] = [];
 
     sectionLinks.forEach((link) => {
@@ -56,6 +66,7 @@ serve(async (req) => {
       }
     });
 
+    console.log(`Extracted ${sections.length} sections.`);
     return new Response(JSON.stringify({ sections }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
