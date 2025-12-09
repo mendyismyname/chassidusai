@@ -5,15 +5,15 @@ import TopNav from './components/TopNav';
 import BottomNav from './components/BottomNav';
 import Orb from './components/Orb';
 import Intro from './components/Intro';
-import ProfileModal from './components/ProfileModal';
+import ProfileModal from './src/pages/ProfileModal'; // Corrected path for ProfileModal
 import WebcamWindow from './components/WebcamWindow';
 import WelcomeExperience from './components/WelcomeExperience';
-import LoginPage from './src/pages/LoginPage'; // Import LoginPage
-import { useSession } from './src/components/SessionContextProvider'; // Import useSession
+import LoginPage from './src/pages/LoginPage';
+import { useSession } from './src/components/SessionContextProvider';
 import { Settings, Book, AIState } from './types';
 import { LIBRARY, SAMPLE_TEXT, SAMPLE_TEXT_TITLE } from './constants';
 import { chatWithAI } from './services/geminiService';
-import { supabase } from './integrations/supabase/client'; // Import supabase client
+import { supabase } from './src/integrations/supabase/client'; // Corrected import path
 
 // Cookie Helpers (Keep for API Key, as it's client-side for security)
 const setCookie = (name: string, value: string, days: number) => {
