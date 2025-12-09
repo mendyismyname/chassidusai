@@ -42,20 +42,33 @@ async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: st
   return newChap?.id;
 }
 
+// --- CRITICAL FIX: Added 'await' to ensure data is saved ---
 async function insertSegments(chapterId: string, text: string) {
-  // Split by newlines or <br>
   const segments = text.split(/(?:\r\n|\r|\n|<br>)/).map(s => s.trim());
   let seq = 1;
+  
+  // Create a batch of rows to insert at once (Much faster and safer)
+  const rowsToInsert = [];
+
   for (const seg of segments) {
-    // Keep meaningful content, Hebrew, or Footnote markers (*, numbers)
     if (seg.length < 2) continue;
+    // Allow Hebrew or special markers (footnotes *, numbers)
     if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue; 
     
-    // Fire and forget insert to speed up
-    supabase.from('segments').insert({ chapter_id: chapterId, sequence_number: seq, hebrew_text: seg });
+    rowsToInsert.push({
+        chapter_id: chapterId,
+        sequence_number: seq,
+        hebrew_text: seg
+    });
     seq++;
   }
-  return seq - 1;
+
+  if (rowsToInsert.length > 0) {
+      const { error } = await supabase.from('segments').insert(rowsToInsert);
+      if (error) console.error("Database Insert Error:", error.message);
+  }
+
+  return rowsToInsert.length;
 }
 
 // --- Analysis Logic ---
@@ -89,23 +102,16 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             }
         });
 
-        // 2. Navigation Button Detection (FIXED LOGIC)
+        // 2. Navigation Button Detection
         const allAnchors = Array.from(document.querySelectorAll('a'));
         const nextLinkEl = allAnchors.find(a => {
             const t = a.innerText.trim();
-            
-            // LEGACY SITE LOGIC: 
-            // >> (Right arrows) usually mean NEXT in older HTML, regardless of Hebrew RTL.
-            // << (Left arrows) usually mean PREVIOUS.
-            
             const matchesNext = t.includes('>>') || t.includes('הבא'); 
             const matchesPrev = t.includes('<<') || t.includes('הקודם');
-            
             return matchesNext && !matchesPrev;
         });
         
         const nextUrl = nextLinkEl ? (nextLinkEl as HTMLAnchorElement).href : null;
-        const nextText = nextLinkEl ? (nextLinkEl as HTMLElement).innerText : null;
 
         // 3. Index Links Detection
         const subLinks = allAnchors
@@ -123,7 +129,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             );
 
         if (bestTextEl) {
-            return { type: 'CONTENT', text: bestTextEl.innerText, nextUrl, nextText };
+            return { type: 'CONTENT', text: bestTextEl.innerText, nextUrl };
         }
         if (subLinks.length > 0) {
             return { type: 'INDEX', links: subLinks };
@@ -140,7 +146,7 @@ async function surfLinear(
     bookId: string, 
     baseTitle: string, 
     startSeq: number,
-    globalVisited: Set<string> // Shared history
+    globalVisited: Set<string>
 ) {
     let currentUrl: string | null = startUrl;
     let sequence = startSeq;
@@ -148,7 +154,6 @@ async function surfLinear(
     console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
 
     while (currentUrl) {
-        // Dedup Check: If we already scraped this page via another path, skip it.
         if (globalVisited.has(currentUrl)) {
              console.log("        🔄 Page already visited. Stopping surf.");
              break;
@@ -163,14 +168,14 @@ async function surfLinear(
                 const title = `${baseTitle} - Part ${sequence}`; 
                 
                 const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
+                
+                // NOW WE AWAIT THE INSERT
                 const count = await insertSegments(chapId, analysis.text);
                 console.log(`        📄 Saved Part ${sequence} (${count} segments)`);
                 
                 sequence++;
                 
-                // Move to Next
                 if (analysis.nextUrl && analysis.nextUrl !== currentUrl) {
-                    // console.log(`        🔗 Next button found: "${analysis.nextText}"`);
                     currentUrl = analysis.nextUrl;
                 } else {
                     console.log("        🛑 End of Book (No '>>' or 'Next' link found).");
@@ -196,26 +201,21 @@ async function drillRecursive(
     sidebarUrls: string[],
     visitedUrls: Set<string>
 ) {
-    // Check Global History
     if (visitedUrls.has(url)) return;
-    // Note: We don't mark 'visited' here immediately because surfLinear does it. 
-    // But for Index pages, we should mark them.
     
     try {
         await page.goto(url, { waitUntil: 'networkidle2' });
         
-        // Analyze
         const analysis = await analyzePage(page, sidebarUrls);
 
         if (analysis.type === 'CONTENT') {
             console.log(`    🎯 Hit content at: ${breadcrumbPath.join(' > ')}`);
-            // Hand off to Surfer, passing the Global History
             await surfLinear(page, url, bookId, breadcrumbPath.slice(1).join(' - '), 1, visitedUrls);
             return; 
 
         } else if (analysis.type === 'INDEX' && analysis.links) {
             console.log(`    📂 Index: ${breadcrumbPath.slice(-1)[0]} (${analysis.links.length} items)`);
-            visitedUrls.add(url); // Mark this index page as done
+            visitedUrls.add(url);
 
             for (const link of analysis.links) {
                 await drillRecursive(
@@ -228,9 +228,8 @@ async function drillRecursive(
                 );
             }
         } else {
-             visitedUrls.add(url); // Mark empty/useless pages so we don't retry
+             visitedUrls.add(url);
         }
-
     } catch (e) {
         console.error(`Error drilling: ${e}`);
     }
@@ -239,7 +238,7 @@ async function drillRecursive(
 // --- Main ---
 
 async function runScraper() {
-  console.log("🚀 Starting Corrected Scraper (Forward >> Navigation)...");
+  console.log("🚀 Starting Safe Scraper (With Await)...");
   
   const browser = await puppeteer.launch({ 
       headless: false, 
@@ -250,7 +249,6 @@ async function runScraper() {
 
   try {
     await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
-    
     const sidebarLinks = await page.evaluate(() => 
         Array.from(document.querySelectorAll('a')).filter(a => a.href.includes('/books/')).map(a => a.href)
     );
@@ -281,9 +279,6 @@ async function runScraper() {
 
         for (const book of books) {
             const bookId = await getOrInsertBook(authorId, book.text, book.href);
-            
-            // Create a GLOBAL visited set for this entire book.
-            // This is shared between Drill and Surf.
             const visited = new Set<string>();
             
             await drillRecursive(
