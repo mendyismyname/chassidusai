@@ -1,10 +1,10 @@
-
 import React, { useState } from 'react';
 import { LIBRARY } from '../constants';
 import { Book, BookProgress } from '../types';
+import { fetchChabadBookSections, fetchChabadSectionContent } from '../services/chabadLibraryScraper'; // Import new service
 
 interface LibraryProps {
-  onSelectBook: (book: Book) => void;
+  onSelectBook: (book: Book, content?: string) => void; // Modified to accept content
   selectedBookId: string | null;
   isOpen: boolean;
   onClose: () => void;
@@ -15,6 +15,13 @@ interface LibraryProps {
 const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen, onClose, theme, progress }) => {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(LIBRARY[1].title); // Default open Chabad
 
+  // State for Chabad Library Scraper
+  const [chabadBookUrlInput, setChabadBookUrlInput] = useState('');
+  const [fetchedChabadSections, setFetchedChabadSections] = useState<{ title: string; url: string }[]>([]);
+  const [isLoadingChabadSections, setIsLoadingChabadSections] = useState(false);
+  const [chabadScrapeError, setChabadScrapeError] = useState<string | null>(null);
+  const [selectedOnlineSectionUrl, setSelectedOnlineSectionUrl] = useState<string | null>(null);
+
   const toggleCategory = (title: string) => {
     setExpandedCategory(prev => prev === title ? null : title);
   };
@@ -24,6 +31,45 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
   };
 
   const isDark = theme === 'dark';
+
+  const handleFetchChabadSections = async () => {
+    if (!chabadBookUrlInput) {
+      setChabadScrapeError('Please enter a book URL.');
+      return;
+    }
+    setIsLoadingChabadSections(true);
+    setChabadScrapeError(null);
+    setFetchedChabadSections([]);
+    try {
+      const sections = await fetchChabadBookSections(chabadBookUrlInput);
+      setFetchedChabadSections(sections);
+    } catch (error: any) {
+      setChabadScrapeError(`Failed to fetch sections: ${error.message}`);
+    } finally {
+      setIsLoadingChabadSections(false);
+    }
+  };
+
+  const handleLoadChabadSection = async (sectionTitle: string, sectionUrl: string) => {
+    setIsLoadingChabadSections(true);
+    setChabadScrapeError(null);
+    setSelectedOnlineSectionUrl(sectionUrl);
+    try {
+      const { title, content } = await fetchChabadSectionContent(sectionUrl);
+      // Create a dummy Book object for the Reader
+      const onlineBook: Book = {
+        id: sectionUrl, // Use URL as ID for online content
+        title: title,
+        category: 'Online Chabad Library',
+      };
+      onSelectBook(onlineBook, content); // Pass content directly
+      onClose(); // Close library after selecting
+    } catch (error: any) {
+      setChabadScrapeError(`Failed to load section content: ${error.message}`);
+    } finally {
+      setIsLoadingChabadSections(false);
+    }
+  };
 
   return (
     <>
@@ -100,6 +146,65 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
                 </div>
               </div>
             ))}
+
+            {/* New Section for Online Chabad Library */}
+            <div className="mt-8">
+              <button 
+                onClick={() => toggleCategory('Online Chabad Library')}
+                className={`flex items-center gap-2 w-full text-left py-2 font-medium uppercase tracking-wider text-xs opacity-60 hover:opacity-100 transition-opacity ${isDark ? 'text-gray-300' : 'text-gray-600'}`}
+              >
+                <span className={`transform transition-transform duration-200 ${expandedCategory === 'Online Chabad Library' ? 'rotate-90' : ''}`}>
+                  ▶
+                </span>
+                Online Chabad Library
+              </button>
+              
+              <div className={`mt-2 space-y-3 overflow-hidden transition-all duration-300 ${expandedCategory === 'Online Chabad Library' ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                <p className="text-xs opacity-60 px-2">Paste a book URL from chabadlibrary.org to browse its sections.</p>
+                <div className="flex flex-col gap-2 px-2">
+                  <input
+                    type="text"
+                    value={chabadBookUrlInput}
+                    onChange={(e) => setChabadBookUrlInput(e.target.value)}
+                    placeholder="e.g., https://chabadlibrary.org/books/100000000"
+                    className={`w-full p-2 rounded-md border text-sm ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-100 border-gray-300 text-gray-800'}`}
+                  />
+                  <button
+                    onClick={handleFetchChabadSections}
+                    disabled={isLoadingChabadSections || !chabadBookUrlInput}
+                    className={`w-full py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/5 text-black hover:bg-black/10'} ${isLoadingChabadSections ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {isLoadingChabadSections ? 'Loading Sections...' : 'Fetch Sections'}
+                  </button>
+                  {chabadScrapeError && (
+                    <p className="text-red-500 text-xs">{chabadScrapeError}</p>
+                  )}
+                </div>
+
+                {fetchedChabadSections.length > 0 && (
+                  <div className="mt-4 space-y-1">
+                    <p className="text-xs uppercase tracking-wider opacity-70 px-2">Sections:</p>
+                    {fetchedChabadSections.map((section, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleLoadChabadSection(section.title, section.url)}
+                        className={`
+                          group w-full text-right px-4 py-2 rounded-md text-sm font-hebrew-serif transition-all duration-200 border border-transparent relative overflow-hidden
+                          ${selectedOnlineSectionUrl === section.url 
+                            ? 'bg-gray-200 dark:bg-gray-800 text-black dark:text-white font-bold'
+                            : 'hover:bg-gray-100 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+                          }
+                          ${isDark ? 'text-gray-300' : 'text-gray-700'}
+                        `}
+                        disabled={isLoadingChabadSections}
+                      >
+                        {section.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </aside>

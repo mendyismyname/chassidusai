@@ -5,7 +5,7 @@ import TopNav from './components/TopNav';
 import BottomNav from './components/BottomNav';
 import Orb from './components/Orb';
 import Intro from './components/Intro';
-import ProfileModal from './src/pages/ProfileModal'; // Corrected path for ProfileModal
+import ProfileModal from './src/pages/ProfileModal';
 import WebcamWindow from './components/WebcamWindow';
 import WelcomeExperience from './components/WelcomeExperience';
 import LoginPage from './src/pages/LoginPage';
@@ -13,7 +13,7 @@ import { useSession } from './src/components/SessionContextProvider';
 import { Settings, Book, AIState } from './types';
 import { LIBRARY, SAMPLE_TEXT, SAMPLE_TEXT_TITLE } from './constants';
 import { chatWithAI } from './services/geminiService';
-import { supabase } from './src/integrations/supabase/client'; // Corrected import path
+import { supabase } from './src/integrations/supabase/client';
 
 // Cookie Helpers (Keep for API Key, as it's client-side for security)
 const setCookie = (name: string, value: string, days: number) => {
@@ -76,7 +76,7 @@ const App: React.FC = () => {
   });
   
   const [selectedTextForAI, setSelectedTextForAI] = useState<string>("");
-  const [markedContext, setMarkedContext] = useState<string>(SAMPLE_TEXT);
+  const [markedContext, setMarkedContext] = useState<string>(SAMPLE_TEXT); // Default to SAMPLE_TEXT
 
   // Load user settings and progress from profile or local storage
   useEffect(() => {
@@ -108,23 +108,27 @@ const App: React.FC = () => {
 
   // --- Handlers ---
 
-  const handleBookSelect = async (book: Book) => {
+  const handleBookSelect = async (book: Book, content?: string) => { // Added content parameter
     setCurrentBook(book);
     setIsLibraryOpen(false); 
 
-    // Fetch book content from Supabase
-    const { data, error } = await supabase
-      .from('texts')
-      .select('content')
-      .eq('id', book.id)
-      .single();
+    if (content) {
+      setMarkedContext(content); // Use provided content for online books
+    } else {
+      // Fetch book content from Supabase for local books
+      const { data, error } = await supabase
+        .from('texts')
+        .select('content')
+        .eq('id', book.id)
+        .single();
 
-    if (error) {
-      console.error('Error fetching book content:', error);
-      // Fallback to sample text if fetching fails
-      setMarkedContext(SAMPLE_TEXT);
-    } else if (data) {
-      setMarkedContext(data.content);
+      if (error) {
+        console.error('Error fetching book content:', error);
+        // Fallback to sample text if fetching fails
+        setMarkedContext(SAMPLE_TEXT);
+      } else if (data) {
+        setMarkedContext(data.content);
+      }
     }
   };
 
@@ -141,6 +145,7 @@ const App: React.FC = () => {
     setCurrentBook(null);
     setIsLibraryOpen(false);
     setScrollToChunkId(null);
+    setMarkedContext(SAMPLE_TEXT); // Reset to sample text when going home
   };
 
   const handleUpdateSettings = async (newSettings: Partial<Settings>) => {
