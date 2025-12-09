@@ -51,68 +51,73 @@ async function insertSegments(chapterId: string, segments: string[]) {
 }
 
 // --- VERBOSE ANALYSIS LOGIC ---
+// --- VERBOSE ANALYSIS LOGIC (STRICT) ---
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
         const pageTitle = document.title || '';
 
-        // 1. Text Content Detection
-        const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
+        // 1. Aggressive DOM Cleaning (Before Analysis)
+        // We clone the body so we don't break the page interaction
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        
+        // Remove known navigation/menu elements
+        const junkSelectors = [
+            'nav', 'header', 'footer', '.menu', '.sidebar', '.breadcrumbs', 
+            '.toc', '#toc', 'ul', 'ol' // Remove lists entirely to see what real text remains
+        ];
+        junkSelectors.forEach(sel => {
+            const els = clone.querySelectorAll(sel);
+            els.forEach(e => e.remove());
+        });
+
+        // Remove divs that look like menus (contain keywords)
+        const allDivs = clone.querySelectorAll('div, span, p');
+        allDivs.forEach(el => {
+            const txt = (el as HTMLElement).innerText || '';
+            if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
+            if (txt.includes('דף הבית') && txt.includes('תוכן העניינים')) el.remove();
+        });
+
+        // 2. Text Content Detection on CLEANED DOM
+        // Now that menus are gone, is there any text left?
+        const candidates = Array.from(clone.querySelectorAll('div, table, article, td, span, p'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
         let diagnosticLog = "";
 
         candidates.forEach(el => {
-            if (el.closest('nav') || el.className.includes('menu') || el.className.includes('sidebar')) return;
             const txt = (el as HTMLElement).innerText;
-            if (txt.length < 30) return; // Lower threshold for detection
+            if (txt.length < 50) return;
 
             const hebrewCount = (txt.match(/[\u0590-\u05FF]/g) || []).length;
-            const linkCount = el.querySelectorAll('a').length;
-            const ratio = linkCount > 0 ? hebrewCount / linkCount : hebrewCount;
+            const linkCount = el.querySelectorAll('a').length; // Should be low in content
+            
+            // KEY CHANGE: High Hebrew count, LOW link count
+            // A page of text might have 5 footnotes (links), but 2000 chars.
+            // An index might have 50 links and 1000 chars.
+            const isContent = hebrewCount > 100 && (linkCount === 0 || hebrewCount / linkCount > 50);
 
-            if (hebrewCount > 50) { // Lower threshold for testing
+            if (isContent) {
                 if (hebrewCount > maxHebrewCount) {
                     maxHebrewCount = hebrewCount;
                     bestTextEl = el as HTMLElement;
-                    diagnosticLog = `Found candidate: ${hebrewCount} chars, Ratio ${ratio.toFixed(1)}`;
+                    diagnosticLog = `Found candidate: ${hebrewCount} chars, ${linkCount} links`;
                 }
             }
         });
 
-        // 2. DOM Cleaning
+        // 3. Re-Clean the Best Element for Extraction
         let cleanedSegments: string[] = [];
         if (bestTextEl) {
-            const clone = bestTextEl.cloneNode(true) as HTMLElement;
-            const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
-            headers.forEach(h => h.remove());
-            const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
-            lists.forEach(l => l.remove());
-            const allDivs = clone.querySelectorAll('div, span, p');
-            allDivs.forEach(el => {
-                const txt = (el as HTMLElement).innerText || '';
-                if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
-                if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
-            });
-            const hrs = clone.querySelectorAll('hr');
-            hrs.forEach(hr => hr.remove());
-
-            let rawText = clone.innerText;
+            let rawText = bestTextEl.innerText;
+            // Remove navigation artifacts
             rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]{1,4}(-[\u05D0-\u05EA])?)?(\s+)?/s, ''); 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
 
-        // 3. Next Button Logic
+        // 4. Index Links (Use the original document, not the cleaned clone)
         const allAnchors = Array.from(document.querySelectorAll('a'));
-        const nextLinkEl = allAnchors.find(a => {
-            const t = a.innerText.trim();
-            const matchesNext = t.includes('>>') || t.includes('הבא'); 
-            const matchesPrev = t.includes('<<') || t.includes('הקודם');
-            return matchesNext && !matchesPrev;
-        });
-        const nextUrl = nextLinkEl ? (nextLinkEl as HTMLAnchorElement).href : null;
-
-        // 4. Index Links
         const subLinks = allAnchors
             .map(a => ({ text: a.innerText.trim(), href: a.href }))
             .filter(l => 
@@ -127,12 +132,16 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
                 !l.text.includes('>>')
             );
 
+        // DECISION LOGIC
         if (cleanedSegments.length > 0) {
-            return { type: 'CONTENT', segments: cleanedSegments, nextUrl, pageTitle, diag: diagnosticLog };
+            return { type: 'CONTENT', segments: cleanedSegments, nextUrl: null, pageTitle, diag: diagnosticLog };
         }
+        
+        // If we didn't find text content, do we have links?
         if (subLinks.length > 0) {
             return { type: 'INDEX', links: subLinks, diag: `Found ${subLinks.length} links` };
         }
+        
         return { type: 'EMPTY', diag: "No text or links found" };
 
     }, excludeUrls);
