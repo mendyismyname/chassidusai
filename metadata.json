@@ -1,0 +1,7 @@
+{
+  "name": "chassidus.ai",
+  "description": "A minimalist, AI-powered reader for Chassidic texts featuring translation and summarization.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
