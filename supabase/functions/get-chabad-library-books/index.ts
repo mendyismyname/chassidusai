@@ -36,7 +36,8 @@ serve(async (req) => {
     }
 
     const booksData: { author: string; title: string; url: string }[] = [];
-    const authorHeadings = document.querySelectorAll('h2'); // Select all H2 elements
+    // Select all H2 elements which are typically author headings
+    const authorHeadings = document.querySelectorAll('h2');
 
     console.log(`Found ${authorHeadings.length} potential author headings (H2s).`);
 
@@ -47,7 +48,8 @@ serve(async (req) => {
         return; // Skip if no author name
       }
 
-      // Find the next sibling element which is a UL
+      // Find the next sibling element which is a UL (unordered list)
+      // This UL is expected to contain the list of books by that author.
       let nextSibling = authorH2.nextElementSibling;
       while (nextSibling && nextSibling.tagName !== 'UL') {
         nextSibling = nextSibling.nextElementSibling;
@@ -62,6 +64,7 @@ serve(async (req) => {
           const title = link.textContent?.trim();
           const url = (link as HTMLAnchorElement).href;
           if (title && url) {
+            // Ensure the URL is absolute
             const absoluteUrl = new URL(url, libraryUrl).href;
             booksData.push({ author, title, url: absoluteUrl });
           }

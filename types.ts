@@ -6,6 +6,8 @@ export interface Book {
   id: string;
   title: string;
   category: string;
+  author?: string; // Added author to Book interface
+  external_link?: string; // Added external_link to Book interface
 }
 
 export interface BookCategory {
@@ -56,6 +58,7 @@ export interface Settings {
   lastUsageDate: string; // YYYY-MM-DD
   progress: BookProgress[];
   localProgress: BookProgress[]; // Added for guest users
+  isAdmin: boolean; // New: Admin flag
 }
 
 export interface WebcamState {

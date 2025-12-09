@@ -60,6 +60,7 @@ const App: React.FC = () => {
       lastUsageDate: new Date().toISOString().split('T')[0],
       progress: [], // Will be overwritten by profile or localProgress
       localProgress: savedLocalProgress,
+      isAdmin: true, // Set isAdmin to true for now to access admin tools
     };
   });
 
@@ -311,6 +312,7 @@ const App: React.FC = () => {
           selectedBookId={currentBook?.id || null}
           theme={settings.theme}
           progress={settings.progress}
+          isAdmin={settings.isAdmin} // Pass isAdmin prop
         />
 
         {/* Profile / API Key Modal */}
