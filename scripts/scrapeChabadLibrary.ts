@@ -42,44 +42,16 @@ async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: st
   return newChap?.id;
 }
 
-// --- SAFE INSERT (Prevents Duplicates) ---
-// --- SMART INSERT (Strict Filters) ---
-async function insertSegments(chapterId: string, text: string) {
-  // Split by newlines or <br>
-  const segments = text.split(/(?:\r\n|\r|\n|<br>)/).map(s => s.trim());
+// --- INSERT (Now simplified because the input text is cleaner) ---
+async function insertSegments(chapterId: string, segments: string[]) {
   let seq = 1;
   const rowsToInsert = [];
 
-  // --- Blacklist of exact phrases to ignore ---
-  const junkPhrases = new Set([
-      'כתר שם טוב', 
-      'אוצר החסידים', 
-      'מסביב לחסידות', 
-      'צוואה', 
-      'הסכמה',
-      'חלק ראשון',
-      'חלק שני',
-      'תוכן העניינים',
-      'דף הבית',
-      'הערות וציונים',
-      'מקורות ומראה מקומות'
-  ]);
-
   for (const seg of segments) {
-    // 1. Length Check: Real sentences are usually longer than 5 chars
-    if (seg.length < 5) continue;
-
-    // 2. Exact Match Block
-    if (junkPhrases.has(seg)) continue;
-
-    // 3. Pattern Block
-    if (seg.startsWith('ספרי ')) continue; // "Books of..."
-    if (seg.startsWith('-----')) continue; // Separator lines
-    if (seg.includes('>')) continue;       // Breadcrumbs
-
-    // 4. Must have Hebrew
-    if (!/[\u0590-\u05FF]/.test(seg)) continue;
-
+    if (seg.length < 2) continue;
+    // Allow Hebrew or special markers (footnotes *, numbers)
+    if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue; 
+    
     rowsToInsert.push({
         chapter_id: chapterId,
         sequence_number: seq,
@@ -90,19 +62,19 @@ async function insertSegments(chapterId: string, text: string) {
 
   if (rowsToInsert.length > 0) {
       const { error } = await supabase.from('segments').insert(rowsToInsert);
-      if (error) console.error("DB Error:", error.message);
+      if (error) console.error("Database Insert Error:", error.message);
   }
   return rowsToInsert.length;
 }
 
-// --- Analysis Logic ---
+// --- PAGE ANALYSIS (DOM-Based Cleaning) ---
 type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
 
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
 
-        // 1. Text Content
+        // 1. Find the best container (The "Article Body")
         const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
@@ -124,7 +96,38 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             }
         });
 
-        // 2. Next Button Logic (Strict Forward Only)
+        // 2. DOM CLEANING (The "Structure" Fix)
+        let cleanedSegments: string[] = [];
+        
+        if (bestTextEl) {
+            // Clone the node so we don't break the live page
+            const clone = bestTextEl.cloneNode(true) as HTMLElement;
+
+            // A. Remove Headers (h1-h6) - These are titles, not content
+            const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            headers.forEach(h => h.remove());
+
+            // B. Remove Breadcrumbs / Navigation within the content
+            // Logic: Remove any div/span that contains "Home" (דף הבית) or "Back" (חזור)
+            const allElements = clone.querySelectorAll('*');
+            allElements.forEach(el => {
+                const txt = (el as HTMLElement).innerText || '';
+                if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) {
+                    el.remove();
+                }
+            });
+
+            // C. Remove Separators (HR)
+            const hrs = clone.querySelectorAll('hr');
+            hrs.forEach(hr => hr.remove());
+
+            // D. Extract Text
+            // We get innerText, which preserves newlines for <br> and block elements
+            const rawText = clone.innerText;
+            cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
+        }
+
+        // 3. Navigation Button Detection
         const allAnchors = Array.from(document.querySelectorAll('a'));
         const nextLinkEl = allAnchors.find(a => {
             const t = a.innerText.trim();
@@ -134,7 +137,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
         });
         const nextUrl = nextLinkEl ? (nextLinkEl as HTMLAnchorElement).href : null;
 
-        // 3. Index Links
+        // 4. Index Links
         const subLinks = allAnchors
             .map(a => ({ text: a.innerText.trim(), href: a.href }))
             .filter(l => 
@@ -149,8 +152,8 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
                 !l.text.includes('>>')
             );
 
-        if (bestTextEl) {
-            return { type: 'CONTENT', text: bestTextEl.innerText, nextUrl };
+        if (cleanedSegments.length > 0) {
+            return { type: 'CONTENT', segments: cleanedSegments, nextUrl };
         }
         if (subLinks.length > 0) {
             return { type: 'INDEX', links: subLinks };
@@ -185,10 +188,12 @@ async function surfLinear(
             await page.goto(currentUrl, { waitUntil: 'networkidle2' });
             const analysis = await analyzePage(page, []);
             
-            if (analysis.type === 'CONTENT' && analysis.text) {
+            if (analysis.type === 'CONTENT' && analysis.segments) {
                 const title = `${baseTitle} - Part ${sequence}`; 
                 const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
-                const count = await insertSegments(chapId, analysis.text);
+                
+                // Pass the CLEANED segments directly
+                const count = await insertSegments(chapId, analysis.segments);
                 console.log(`        📄 Saved Part ${sequence} (${count} segments)`);
                 
                 sequence++;
@@ -255,7 +260,7 @@ async function drillRecursive(
 
 // --- Main ---
 async function runScraper() {
-  console.log("🚀 Starting Final Golden Scraper...");
+  console.log("🚀 Starting DOM-Structure Scraper...");
   
   const browser = await puppeteer.launch({ 
       headless: false, 
