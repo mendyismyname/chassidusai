@@ -43,35 +43,42 @@ async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: st
 }
 
 // --- SAFE INSERT (Prevents Duplicates) ---
-// --- SMART INSERT (Filters Junk) ---
+// --- SMART INSERT (Strict Filters) ---
 async function insertSegments(chapterId: string, text: string) {
-  // 1. Split by newlines or <br>
+  // Split by newlines or <br>
   const segments = text.split(/(?:\r\n|\r|\n|<br>)/).map(s => s.trim());
-  
   let seq = 1;
   const rowsToInsert = [];
 
+  // --- Blacklist of exact phrases to ignore ---
+  const junkPhrases = new Set([
+      'כתר שם טוב', 
+      'אוצר החסידים', 
+      'מסביב לחסידות', 
+      'צוואה', 
+      'הסכמה',
+      'חלק ראשון',
+      'חלק שני',
+      'תוכן העניינים',
+      'דף הבית',
+      'הערות וציונים',
+      'מקורות ומראה מקומות'
+  ]);
+
   for (const seg of segments) {
-    // --- FILTER RULES ---
-    
-    // 1. Too short to be a sentence
-    if (seg.length < 3) continue;
+    // 1. Length Check: Real sentences are usually longer than 5 chars
+    if (seg.length < 5) continue;
 
-    // 2. Must contain Hebrew OR be a specific marker (like a footnote number)
-    if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue;
+    // 2. Exact Match Block
+    if (junkPhrases.has(seg)) continue;
 
-    // 3. Junk Headers & Breadcrumbs (The New Logic)
-    if (seg.includes('>')) continue;            // Breadcrumbs like "Book > Part"
-    if (seg.startsWith('ספרי ')) continue;      // Category headers like "Sifrei Admur..."
-    if (seg.startsWith('-----')) continue;      // Visual separators
-    if (seg.includes('דף הבית')) continue;      // Home link
-    if (seg.includes('תוכן העניינים')) continue; // TOC link
-    
-    // 4. Exact match garbage (Legacy artifacts)
-    const junkPhrases = ['חלק ראשון', 'חלק שני', 'הוספות', 'מקורות ומראה מקומות', 'הערות וציונים'];
-    if (junkPhrases.includes(seg)) continue;
+    // 3. Pattern Block
+    if (seg.startsWith('ספרי ')) continue; // "Books of..."
+    if (seg.startsWith('-----')) continue; // Separator lines
+    if (seg.includes('>')) continue;       // Breadcrumbs
 
-    // --------------------
+    // 4. Must have Hebrew
+    if (!/[\u0590-\u05FF]/.test(seg)) continue;
 
     rowsToInsert.push({
         chapter_id: chapterId,
@@ -83,7 +90,7 @@ async function insertSegments(chapterId: string, text: string) {
 
   if (rowsToInsert.length > 0) {
       const { error } = await supabase.from('segments').insert(rowsToInsert);
-      if (error) console.error("Database Insert Error:", error.message);
+      if (error) console.error("DB Error:", error.message);
   }
   return rowsToInsert.length;
 }
