@@ -42,7 +42,6 @@ async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: st
   return newChap?.id;
 }
 
-// --- INSERT (Now simplified because the input text is cleaner) ---
 async function insertSegments(chapterId: string, segments: string[]) {
   let seq = 1;
   const rowsToInsert = [];
@@ -67,22 +66,17 @@ async function insertSegments(chapterId: string, segments: string[]) {
   return rowsToInsert.length;
 }
 
-// --- PAGE ANALYSIS (DOM-Based Cleaning) ---
 // --- Analysis Logic ---
 type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
 
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
-
-        // 0. Extract Page Title / Breadcrumb for Loop Detection
-        // Look for the header path (usually in a specific div or title tag)
+        
+        // 0. Loop Detection Helpers
         const pageTitle = document.title || '';
-        const breadcrumbText = document.querySelector('.breadcrumbs')?.textContent || 
-                               document.querySelector('#path')?.textContent || 
-                               document.body.innerText.substring(0, 200); // Fallback
 
-        // 1. Text Content
+        // 1. Text Content Detection
         const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
@@ -108,23 +102,30 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
         let cleanedSegments: string[] = [];
         if (bestTextEl) {
             const clone = bestTextEl.cloneNode(true) as HTMLElement;
+            
+            // A. Remove Headers
             const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
             headers.forEach(h => h.remove());
+            
+            // B. Remove Menus/Breadcrumbs
             const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
             lists.forEach(l => l.remove());
             
             const allDivs = clone.querySelectorAll('div, span, p');
             allDivs.forEach(el => {
                 const txt = (el as HTMLElement).innerText || '';
+                // Aggressive Menu Killers
                 if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
                 if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
             });
 
+            // C. Remove Separators
             const hrs = clone.querySelectorAll('hr');
             hrs.forEach(hr => hr.remove());
 
+            // D. Extract & Polish Text
             let rawText = clone.innerText;
-            // Robust Artifact Removal: Remove arrows + Chapter letters (e.g. >>Aleph)
+            // Remove navigation artifacts (arrows + optional page number like >>25b)
             rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]{1,4}(-[\u05D0-\u05EA])?)?(\s+)?/s, ''); 
 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
@@ -166,7 +167,6 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
     }, excludeUrls);
 }
 
-// --- Surf Mode ---
 // --- Surf Mode (With Loop Protection) ---
 async function surfLinear(
     page: Page, 
@@ -178,18 +178,15 @@ async function surfLinear(
 ) {
     let currentUrl: string | null = startUrl;
     let sequence = startSeq;
-    const sessionVisited = new Set<string>(); // Local loop protection
+    const sessionVisited = new Set<string>(); 
 
     console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
 
     while (currentUrl) {
-        // 1. Global History Check
         if (globalVisited.has(currentUrl)) {
              console.log("        🔄 Page already visited (Global). Stopping surf.");
              break;
         }
-        
-        // 2. Session Loop Check (Immediate Cycle)
         if (sessionVisited.has(currentUrl)) {
              console.log("        🔄 Page loop detected (Session). Stopping surf.");
              break;
@@ -204,17 +201,15 @@ async function surfLinear(
             
             if (analysis.type === 'CONTENT' && analysis.segments) {
                 
-                // --- 3. LOGIC LOOP CHECK: Did we jump back to the start? ---
-                // If we are deep in the book (seq > 5) and the page title contains "Haskama" or "Chelek Rishon" 
-                // when we were just in "Hosafos", it's a reset loop.
+                // --- LOOP CHECK: Did we jump back to the start? ---
                 const titleLower = (analysis.pageTitle || '').toLowerCase();
-                const isStartPage = titleLower.includes('הסכמה') || titleLower.includes('introduction');
+                const isStartPage = titleLower.includes('הסכמה') || titleLower.includes('introduction') || titleLower.includes('חלק ראשון');
                 
+                // If we are deep in the book but see a start page title, abort.
                 if (sequence > 5 && isStartPage) {
                     console.log("        🛑 Loop detected: Jumped back to Introduction. Stopping.");
                     break;
                 }
-                // -----------------------------------------------------------
 
                 const title = `${baseTitle} - Part ${sequence}`; 
                 const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
@@ -285,7 +280,7 @@ async function drillRecursive(
 
 // --- Main ---
 async function runScraper() {
-  console.log("🚀 Starting DOM-Structure Scraper...");
+  console.log("🚀 Starting Golden Master Scraper...");
   
   const browser = await puppeteer.launch({ 
       headless: false, 
