@@ -88,14 +88,6 @@ async function insertSegments(chapterId: string, text: string) {
   return rowsToInsert.length;
 }
 
-  // Use 'upsert' or 'insert' but since we truncate, insert is fine.
-  if (rowsToInsert.length > 0) {
-      const { error } = await supabase.from('segments').insert(rowsToInsert);
-      if (error) console.error("Database Insert Error:", error.message);
-  }
-  return rowsToInsert.length;
-}
-
 // --- Analysis Logic ---
 type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
 
