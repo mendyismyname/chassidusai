@@ -1,7 +1,7 @@
-
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Settings, Theme } from '../types';
 import { THEME_CLASSES } from '../constants';
+import { User } from '@supabase/supabase-js'; // Import User type
 
 interface WelcomeExperienceProps {
   settings: Settings;
@@ -9,6 +9,8 @@ interface WelcomeExperienceProps {
   onOpenLibrary: () => void;
   onOpenProfile: () => void;
   onStartLearning: () => void;
+  onOpenLogin: () => void; // New prop
+  user: User | null; // New prop
 }
 
 // Extended mock data for the library preview
@@ -19,7 +21,7 @@ const LIBRARY_PREVIEW = [
     { t: 'Derech Mitzvosecha', author: 'Tzemach Tzedek', date: '1850s', purpose: 'Mitzvos', desc: 'Explaining the reasons behind the commandments.', p: 0 }
 ];
 
-const WelcomeExperience: React.FC<WelcomeExperienceProps> = ({ settings, onUpdateSettings, onOpenLibrary, onOpenProfile, onStartLearning }) => {
+const WelcomeExperience: React.FC<WelcomeExperienceProps> = ({ settings, onUpdateSettings, onOpenLibrary, onOpenProfile, onStartLearning, onOpenLogin, user }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState(0);
   const [mounted, setMounted] = useState(false);
@@ -763,6 +765,17 @@ const WelcomeExperience: React.FC<WelcomeExperienceProps> = ({ settings, onUpdat
                         >
                             Start Learning
                         </button>
+                        {!user && (
+                          <button 
+                            onClick={onOpenLogin}
+                            className={`
+                                px-8 py-4 rounded-full font-bold uppercase tracking-[0.2em] text-xs transition-all shadow-xl hover:scale-105
+                                ${isDark ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}
+                            `}
+                          >
+                              Log In
+                          </button>
+                        )}
                     </div>
                 </div>
 

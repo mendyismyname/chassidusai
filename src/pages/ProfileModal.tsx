@@ -10,9 +10,10 @@ interface ProfileModalProps {
   theme: string;
   profile: Profile | null;
   fetchProfile: () => Promise<void>;
+  onOpenLogin: () => void; // New prop
 }
 
-const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings, onClose, theme, profile, fetchProfile }) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings, onClose, theme, profile, fetchProfile, onOpenLogin }) => {
   const { user } = useSession();
   const [keyInput, setKeyInput] = useState(settings.apiKey);
   const [firstName, setFirstName] = useState(profile?.first_name || '');
@@ -32,6 +33,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings,
       setLocation(profile.location || '');
       setBio(profile.bio || '');
       setSkills(profile.skills?.join(', ') || '');
+    } else {
+      // Clear profile fields if no user is logged in
+      setFirstName('');
+      setLastName('');
+      setTitle('');
+      setLocation('');
+      setBio('');
+      setSkills('');
     }
   }, [profile]);
 
@@ -39,7 +48,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings,
     setIsSaving(true);
     setSaveError(null);
 
-    // Save API Key to cookie (client-side)
+    // Always save API Key to cookie (client-side)
     onUpdateSettings({ apiKey: keyInput });
 
     if (user) {
@@ -90,7 +99,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings,
   const textColor = isDark ? 'text-gray-400' : 'text-gray-600';
   const headingColor = isDark ? 'text-gray-100' : 'text-gray-900';
   
-  // Mock progress data if empty
+  // Use settings.progress for display, which will be profile.progress if logged in, or localProgress if guest
   const progressData = settings.progress.length > 0 ? settings.progress : [
     { bookId: 'toras-chaim', percentage: 12, lastReadDate: '2023-10-27' },
     { bookId: 'tanya', percentage: 45, lastReadDate: '2023-10-25' },
@@ -124,72 +133,78 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings,
            <p className="text-xs opacity-50 uppercase tracking-widest mb-12">Your Learning Journey</p>
 
            <div className="space-y-8">
-              {/* Profile Details */}
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-widest opacity-40 mb-6">Profile Details</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="firstName" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>First Name</label>
-                    <input
-                      id="firstName"
-                      type="text"
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="lastName" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Last Name</label>
-                    <input
-                      id="lastName"
-                      type="text"
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="title" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Title</label>
-                    <input
-                      id="title"
-                      type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="location" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Location</label>
-                    <input
-                      id="location"
-                      type="text"
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="bio" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Bio</label>
-                    <textarea
-                      id="bio"
-                      value={bio}
-                      onChange={(e) => setBio(e.target.value)}
-                      rows={3}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="skills" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Skills (comma-separated)</label>
-                    <input
-                      id="skills"
-                      type="text"
-                      value={skills}
-                      onChange={(e) => setSkills(e.target.value)}
-                      className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
-                    />
+              {/* Profile Details (only if logged in) */}
+              {user ? (
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-widest opacity-40 mb-6">Profile Details</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="firstName" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>First Name</label>
+                      <input
+                        id="firstName"
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="lastName" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Last Name</label>
+                      <input
+                        id="lastName"
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="title" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Title</label>
+                      <input
+                        id="title"
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="location" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Location</label>
+                      <input
+                        id="location"
+                        type="text"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="bio" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Bio</label>
+                      <textarea
+                        id="bio"
+                        value={bio}
+                        onChange={(e) => setBio(e.target.value)}
+                        rows={3}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="skills" className={`block text-xs uppercase tracking-wider opacity-70 mb-1 ${textColor}`}>Skills (comma-separated)</label>
+                      <input
+                        id="skills"
+                        type="text"
+                        value={skills}
+                        onChange={(e) => setSkills(e.target.value)}
+                        className={`w-full py-2 px-3 rounded-md border ${isDark ? 'bg-gray-900 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-800'}`}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className={`p-4 rounded-md border ${isDark ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} text-sm ${textColor}`}>
+                  Log in to save your profile details and progress across devices.
+                </div>
+              )}
 
               {/* Progress Section */}
               <div>
@@ -269,17 +284,29 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ settings, onUpdateSettings,
                  >
                    Get Free Key
                  </a>
-                 <button 
-                   onClick={handleLogout}
-                   disabled={isSaving}
-                   className={`
-                     w-full px-6 py-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border text-center
-                     ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}
-                     ${isDark ? 'border-red-800 text-red-400 hover:bg-red-900/20' : 'border-red-200 text-red-600 hover:bg-red-50'}
-                   `}
-                 >
-                   Log Out
-                 </button>
+                 {user ? (
+                   <button 
+                     onClick={handleLogout}
+                     disabled={isSaving}
+                     className={`
+                       w-full px-6 py-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border text-center
+                       ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}
+                       ${isDark ? 'border-red-800 text-red-400 hover:bg-red-900/20' : 'border-red-200 text-red-600 hover:bg-red-50'}
+                     `}
+                   >
+                     Log Out
+                   </button>
+                 ) : (
+                   <button 
+                     onClick={onOpenLogin}
+                     className={`
+                       w-full px-6 py-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border text-center
+                       ${isDark ? 'border-blue-800 text-blue-400 hover:bg-blue-900/20' : 'border-blue-200 text-blue-600 hover:bg-blue-50'}
+                     `}
+                   >
+                     Log In
+                   </button>
+                 )}
              </div>
            </div>
 

@@ -55,6 +55,7 @@ export interface Settings {
   dailyUsageCount: number;
   lastUsageDate: string; // YYYY-MM-DD
   progress: BookProgress[];
+  localProgress: BookProgress[]; // Added for guest users
 }
 
 export interface WebcamState {

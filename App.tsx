@@ -10,7 +10,7 @@ import WebcamWindow from './components/WebcamWindow';
 import WelcomeExperience from './components/WelcomeExperience';
 import LoginPage from './src/pages/LoginPage';
 import { useSession } from './src/components/SessionContextProvider';
-import { Settings, Book, AIState } from './types';
+import { Settings, Book, AIState, BookProgress } from './types';
 import { LIBRARY, SAMPLE_TEXT, SAMPLE_TEXT_TITLE } from './constants';
 import { chatWithAI } from './services/geminiService';
 import { supabase } from './src/integrations/supabase/client';
@@ -44,17 +44,23 @@ const App: React.FC = () => {
 
   // --- State ---
   const [showIntro, setShowIntro] = useState(true);
+  const [showLoginPage, setShowLoginPage] = useState(false); // New state for login page visibility
   
-  const [settings, setSettings] = useState<Settings>({
-    theme: 'light', 
-    fontSize: 2.2, 
-    lineHeight: 1.8,
-    translationMode: 'bilingual',
-    textAlign: 'center',
-    apiKey: getCookie('chassidus_ai_key') || '', // Load from cookie
-    dailyUsageCount: 0,
-    lastUsageDate: new Date().toISOString().split('T')[0],
-    progress: [] // Progress will be fetched from Supabase or initialized
+  const [settings, setSettings] = useState<Settings>(() => {
+    const savedApiKey = getCookie('chassidus_ai_key') || '';
+    const savedLocalProgress = JSON.parse(getCookie('chassidus_ai_local_progress') || '[]') as BookProgress[];
+    return {
+      theme: 'light', 
+      fontSize: 2.2, 
+      lineHeight: 1.8,
+      translationMode: 'bilingual',
+      textAlign: 'center',
+      apiKey: savedApiKey,
+      dailyUsageCount: 0,
+      lastUsageDate: new Date().toISOString().split('T')[0],
+      progress: [], // Will be overwritten by profile or localProgress
+      localProgress: savedLocalProgress,
+    };
   });
 
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
@@ -81,6 +87,7 @@ const App: React.FC = () => {
   // Load user settings and progress from profile or local storage
   useEffect(() => {
     if (profile) {
+      // If logged in, use profile settings and progress
       setSettings(prev => ({
         ...prev,
         theme: profile.theme || prev.theme,
@@ -89,7 +96,14 @@ const App: React.FC = () => {
         translationMode: profile.translation_mode || prev.translationMode,
         textAlign: profile.text_align || prev.textAlign,
         progress: profile.progress || prev.progress,
+        localProgress: [], // Clear local progress if logged in
         // API Key remains client-side (cookie) for security
+      }));
+    } else {
+      // If not logged in, use local progress from cookies
+      setSettings(prev => ({
+        ...prev,
+        progress: prev.localProgress, // Use localProgress as the active progress
       }));
     }
   }, [profile]);
@@ -105,6 +119,13 @@ const App: React.FC = () => {
       }));
     }
   }, []);
+
+  // Save local progress to cookie whenever it changes (for guest users)
+  useEffect(() => {
+    if (!user) {
+      setCookie('chassidus_ai_local_progress', JSON.stringify(settings.progress), 365);
+    }
+  }, [settings.progress, user]);
 
   // --- Handlers ---
 
@@ -215,7 +236,7 @@ const App: React.FC = () => {
      // Check usage limits if no key
      if (!effectiveKey) {
         if (settings.dailyUsageCount >= FREE_LIMIT) {
-             setIsProfileOpen(true);
+             setIsProfileOpen(true); // Open profile to prompt for API key
              return;
         }
      }
@@ -276,10 +297,6 @@ const App: React.FC = () => {
     );
   }
 
-  if (!session) {
-    return <LoginPage />;
-  }
-
   return (
     <>
       {showIntro && <Intro onComplete={() => setShowIntro(false)} />}
@@ -305,6 +322,15 @@ const App: React.FC = () => {
             theme={settings.theme}
             profile={profile} // Pass profile data
             fetchProfile={fetchProfile} // Pass fetchProfile to update profile
+            onOpenLogin={() => { setIsProfileOpen(false); setShowLoginPage(true); }} // Open login page from profile
+          />
+        )}
+
+        {/* Login Page (as a modal-like overlay) */}
+        {showLoginPage && (
+          <LoginPage 
+            onClose={() => setShowLoginPage(false)} 
+            onLoginSuccess={() => { setShowLoginPage(false); fetchProfile(); }}
           />
         )}
 
@@ -344,6 +370,8 @@ const App: React.FC = () => {
                 onOpenLibrary={() => setIsLibraryOpen(true)}
                 onOpenProfile={() => setIsProfileOpen(true)}
                 onStartLearning={handleStartLearning}
+                onOpenLogin={() => setShowLoginPage(true)} // Open login page from welcome
+                user={user} // Pass user to WelcomeExperience
               />
             )}
           </div>

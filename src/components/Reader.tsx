@@ -117,7 +117,7 @@ const Reader: React.FC<ReaderProps> = ({
 
     // Fetch existing translations for this book and user
     const fetchTranslations = async () => {
-      if (!currentBookId || !userId) return;
+      if (!currentBookId || !userId) return; // Only fetch if user is logged in and book is selected
 
       const { data, error } = await supabase
         .from('translations')
@@ -160,7 +160,7 @@ const Reader: React.FC<ReaderProps> = ({
 
   const handleGenerateTranslation = async (chunkIndex: number) => {
     const targetChunk = chunks[chunkIndex];
-    if (!targetChunk.context || !currentBookId || !userId) return;
+    if (!targetChunk.context || !currentBookId) return; // currentBookId is always present if Reader is rendered
 
     const paragraphIndices = chunks
       .map((c, i) => c.context === targetChunk.context ? i : -1)
@@ -180,16 +180,18 @@ const Reader: React.FC<ReaderProps> = ({
       setChunks(prev => prev.map((c, i) => {
         const segIdx = paragraphIndices.indexOf(i);
         if (segIdx !== -1 && translations[segIdx]) {
-            // Save translation to Supabase
-            supabase.from('translations').upsert({
-              user_id: userId,
-              text_id: currentBookId,
-              chunk_id: c.id,
-              language: 'english',
-              translated_content: translations[segIdx],
-            }, { onConflict: 'user_id, text_id, chunk_id, language' }).then(({ error }) => {
-              if (error) console.error('Error saving translation:', error);
-            });
+            // Save translation to Supabase ONLY if user is logged in
+            if (userId) {
+              supabase.from('translations').upsert({
+                user_id: userId,
+                text_id: currentBookId,
+                chunk_id: c.id,
+                language: 'english',
+                translated_content: translations[segIdx],
+              }, { onConflict: 'user_id, text_id, chunk_id, language' }).then(({ error }) => {
+                if (error) console.error('Error saving translation:', error);
+              });
+            }
             return { ...c, translation: translations[segIdx], isLoading: false };
         }
         return c;
