@@ -43,16 +43,17 @@ async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: st
 }
 
 async function insertSegments(chapterId: string, text: string) {
-  // Split by newlines or <br> to create segments
+  // Split by newlines or <br>
   const segments = text.split(/(?:\r\n|\r|\n|<br>)/).map(s => s.trim());
   let seq = 1;
   for (const seg of segments) {
-    // Check if meaningful content OR a footnote marker
+    // Keep meaningful content, Hebrew, or Footnote markers (*, numbers)
     if (seg.length < 2) continue;
     if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue; 
     
-    const { error } = await supabase.from('segments').insert({ chapter_id: chapterId, sequence_number: seq, hebrew_text: seg });
-    if (!error) seq++;
+    // Fire and forget insert to speed up
+    supabase.from('segments').insert({ chapter_id: chapterId, sequence_number: seq, hebrew_text: seg });
+    seq++;
   }
   return seq - 1;
 }
@@ -65,13 +66,12 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
 
-        // 1. Check for Text Content
+        // 1. Text Content Detection
         const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
 
         candidates.forEach(el => {
-            // Ignore nav/menus
             if (el.closest('nav') || el.className.includes('menu') || el.className.includes('sidebar')) return;
             
             const txt = (el as HTMLElement).innerText;
@@ -79,10 +79,8 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
 
             const hebrewCount = (txt.match(/[\u0590-\u05FF]/g) || []).length;
             const linkCount = el.querySelectorAll('a').length;
-            
             const ratio = linkCount > 0 ? hebrewCount / linkCount : hebrewCount;
 
-            // Content Threshold
             if (hebrewCount > 100 && ratio > 30) {
                 if (hebrewCount > maxHebrewCount) {
                     maxHebrewCount = hebrewCount;
@@ -91,20 +89,25 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             }
         });
 
-        // 2. Strict Next Button Detection (The Fix)
+        // 2. Navigation Button Detection (FIXED LOGIC)
         const allAnchors = Array.from(document.querySelectorAll('a'));
         const nextLinkEl = allAnchors.find(a => {
             const t = a.innerText.trim();
-            // Must have "Next" symbols
-            const isNext = t.includes('<<') || t.includes('הבא');
-            // Must NOT have "Prev" symbols (Prevent confusion)
-            const isPrev = t.includes('>>') || t.includes('הקודם');
             
-            return isNext && !isPrev;
+            // LEGACY SITE LOGIC: 
+            // >> (Right arrows) usually mean NEXT in older HTML, regardless of Hebrew RTL.
+            // << (Left arrows) usually mean PREVIOUS.
+            
+            const matchesNext = t.includes('>>') || t.includes('הבא'); 
+            const matchesPrev = t.includes('<<') || t.includes('הקודם');
+            
+            return matchesNext && !matchesPrev;
         });
+        
         const nextUrl = nextLinkEl ? (nextLinkEl as HTMLAnchorElement).href : null;
+        const nextText = nextLinkEl ? (nextLinkEl as HTMLElement).innerText : null;
 
-        // 3. Check for Index Links
+        // 3. Index Links Detection
         const subLinks = allAnchors
             .map(a => ({ text: a.innerText.trim(), href: a.href }))
             .filter(l => 
@@ -120,7 +123,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             );
 
         if (bestTextEl) {
-            return { type: 'CONTENT', text: bestTextEl.innerText, nextUrl };
+            return { type: 'CONTENT', text: bestTextEl.innerText, nextUrl, nextText };
         }
         if (subLinks.length > 0) {
             return { type: 'INDEX', links: subLinks };
@@ -131,28 +134,32 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
 }
 
 // --- The "Surf" Mode (Linear Crawl) ---
-async function surfLinear(page: Page, startUrl: string, bookId: string, baseTitle: string, startSeq: number) {
+async function surfLinear(
+    page: Page, 
+    startUrl: string, 
+    bookId: string, 
+    baseTitle: string, 
+    startSeq: number,
+    globalVisited: Set<string> // Shared history
+) {
     let currentUrl: string | null = startUrl;
     let sequence = startSeq;
-    const visitedInSurf = new Set<string>(); // Loop Protection
 
     console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
 
     while (currentUrl) {
-        // Stop if we are looping back to a page we just visited
-        if (visitedInSurf.has(currentUrl)) {
-             console.log("        🔄 Cycle detected in Linear Surf. Stopping.");
+        // Dedup Check: If we already scraped this page via another path, skip it.
+        if (globalVisited.has(currentUrl)) {
+             console.log("        🔄 Page already visited. Stopping surf.");
              break;
         }
-        visitedInSurf.add(currentUrl);
+        globalVisited.add(currentUrl);
 
         try {
             await page.goto(currentUrl, { waitUntil: 'networkidle2' });
-            
             const analysis = await analyzePage(page, []);
             
             if (analysis.type === 'CONTENT' && analysis.text) {
-                // Title = "Part 1", "Part 2"...
                 const title = `${baseTitle} - Part ${sequence}`; 
                 
                 const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
@@ -163,23 +170,22 @@ async function surfLinear(page: Page, startUrl: string, bookId: string, baseTitl
                 
                 // Move to Next
                 if (analysis.nextUrl && analysis.nextUrl !== currentUrl) {
+                    // console.log(`        🔗 Next button found: "${analysis.nextText}"`);
                     currentUrl = analysis.nextUrl;
                 } else {
-                    console.log("        🛑 End of Book (No 'Next' link found).");
+                    console.log("        🛑 End of Book (No '>>' or 'Next' link found).");
                     currentUrl = null;
                 }
             } else {
-                console.log("        ⚠️ Lost the text trail. Stopping surf.");
+                console.log("        ⚠️ Text content lost. Stopping surf.");
                 currentUrl = null;
             }
-
         } catch (e) {
             console.error(`Error surfing: ${e}`);
             currentUrl = null;
         }
     }
 }
-
 
 // --- The "Drill" Mode (Recursive Search) ---
 async function drillRecursive(
@@ -190,27 +196,28 @@ async function drillRecursive(
     sidebarUrls: string[],
     visitedUrls: Set<string>
 ) {
+    // Check Global History
     if (visitedUrls.has(url)) return;
-    visitedUrls.add(url);
-
+    // Note: We don't mark 'visited' here immediately because surfLinear does it. 
+    // But for Index pages, we should mark them.
+    
     try {
         await page.goto(url, { waitUntil: 'networkidle2' });
         
+        // Analyze
         const analysis = await analyzePage(page, sidebarUrls);
 
         if (analysis.type === 'CONTENT') {
             console.log(`    🎯 Hit content at: ${breadcrumbPath.join(' > ')}`);
-            // Launch Surfer
-            await surfLinear(page, url, bookId, breadcrumbPath.slice(1).join(' - '), 1);
+            // Hand off to Surfer, passing the Global History
+            await surfLinear(page, url, bookId, breadcrumbPath.slice(1).join(' - '), 1, visitedUrls);
             return; 
 
         } else if (analysis.type === 'INDEX' && analysis.links) {
             console.log(`    📂 Index: ${breadcrumbPath.slice(-1)[0]} (${analysis.links.length} items)`);
-            
-            // Shallow Copy & Slice for testing (Remove slice for full run)
-            const linksToProcess = analysis.links; //.slice(0, 3); 
+            visitedUrls.add(url); // Mark this index page as done
 
-            for (const link of linksToProcess) {
+            for (const link of analysis.links) {
                 await drillRecursive(
                     page, 
                     link.href, 
@@ -220,6 +227,8 @@ async function drillRecursive(
                     visitedUrls
                 );
             }
+        } else {
+             visitedUrls.add(url); // Mark empty/useless pages so we don't retry
         }
 
     } catch (e) {
@@ -230,7 +239,7 @@ async function drillRecursive(
 // --- Main ---
 
 async function runScraper() {
-  console.log("🚀 Starting Hybrid Drill-and-Surf Scraper (Strict Nav)...");
+  console.log("🚀 Starting Corrected Scraper (Forward >> Navigation)...");
   
   const browser = await puppeteer.launch({ 
       headless: false, 
@@ -241,6 +250,7 @@ async function runScraper() {
 
   try {
     await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
+    
     const sidebarLinks = await page.evaluate(() => 
         Array.from(document.querySelectorAll('a')).filter(a => a.href.includes('/books/')).map(a => a.href)
     );
@@ -271,6 +281,9 @@ async function runScraper() {
 
         for (const book of books) {
             const bookId = await getOrInsertBook(authorId, book.text, book.href);
+            
+            // Create a GLOBAL visited set for this entire book.
+            // This is shared between Drill and Surf.
             const visited = new Set<string>();
             
             await drillRecursive(
