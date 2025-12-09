@@ -123,8 +123,10 @@ async function scrapeChabadLibrary() {
   const validAuthorLinks = allLinks.filter(link => {
       const text = $(link).text().trim();
       const href = $(link).attr('href');
-      // Must have Hebrew text and a valid link
-      return text.length > 3 && /[\u0590-\u05FF]/.test(text) && href && !href.includes('javascript');
+      if (href && href.includes('books')) {
+          console.log(`Debug found link: ${text} -> ${href}`); // SEE WHAT WE FIND
+      }
+      return text.length > 3 && href && !href.includes('javascript');
   });
 
   console.log(`Found ${validAuthorLinks.length} potential author/category links.`);
