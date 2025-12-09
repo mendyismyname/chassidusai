@@ -6,6 +6,11 @@ const BASE_URL = 'https://chabadlibrary.org/books/';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'YOUR_SUPABASE_URL';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SERVICE_ROLE_KEY';
 
+// --- TEST MODE CONFIGURATION ---
+const TEST_LIMIT_AUTHORS = 3; // Only check 3 authors
+const TEST_LIMIT_BOOKS = 2;   // Only check 2 books per author
+const TEST_LIMIT_PAGES = 2;   // Only scrape 2 pages (parts) per book then stop
+
 if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes('YOUR_')) {
   console.error("❌ Error: Supabase credentials missing.");
   process.exit(1);
@@ -48,7 +53,6 @@ async function insertSegments(chapterId: string, segments: string[]) {
 
   for (const seg of segments) {
     if (seg.length < 2) continue;
-    // Allow Hebrew or special markers (footnotes *, numbers)
     if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue; 
     
     rowsToInsert.push({
@@ -66,17 +70,15 @@ async function insertSegments(chapterId: string, segments: string[]) {
   return rowsToInsert.length;
 }
 
-// --- Analysis Logic ---
+// --- Analysis Logic (With DOM Cleaning) ---
 type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
 
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
-        
-        // 0. Loop Detection Helpers
         const pageTitle = document.title || '';
 
-        // 1. Text Content Detection
+        // 1. Text Content
         const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
@@ -98,34 +100,29 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             }
         });
 
-        // 2. DOM Cleaning & Extraction
+        // 2. DOM Cleaning
         let cleanedSegments: string[] = [];
         if (bestTextEl) {
             const clone = bestTextEl.cloneNode(true) as HTMLElement;
             
-            // A. Remove Headers
             const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
             headers.forEach(h => h.remove());
             
-            // B. Remove Menus/Breadcrumbs
             const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
             lists.forEach(l => l.remove());
             
             const allDivs = clone.querySelectorAll('div, span, p');
             allDivs.forEach(el => {
                 const txt = (el as HTMLElement).innerText || '';
-                // Aggressive Menu Killers
                 if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
                 if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
             });
 
-            // C. Remove Separators
             const hrs = clone.querySelectorAll('hr');
             hrs.forEach(hr => hr.remove());
 
-            // D. Extract & Polish Text
+            // Clean Text Artifacts
             let rawText = clone.innerText;
-            // Remove navigation artifacts (arrows + optional page number like >>25b)
             rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]{1,4}(-[\u05D0-\u05EA])?)?(\s+)?/s, ''); 
 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
@@ -167,7 +164,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
     }, excludeUrls);
 }
 
-// --- Surf Mode (With Loop Protection) ---
+// --- Surf Mode (TEST VERSION) ---
 async function surfLinear(
     page: Page, 
     startUrl: string, 
@@ -180,15 +177,17 @@ async function surfLinear(
     let sequence = startSeq;
     const sessionVisited = new Set<string>(); 
 
-    console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
+    console.log(`      🏄 TEST SURF: ${baseTitle} (Limit: ${TEST_LIMIT_PAGES} pages)`);
 
     while (currentUrl) {
-        if (globalVisited.has(currentUrl)) {
-             console.log("        🔄 Page already visited (Global). Stopping surf.");
-             break;
+        // Stop if we hit the test limit
+        if (sequence > TEST_LIMIT_PAGES) {
+            console.log(`        🛑 TEST LIMIT REACHED (${TEST_LIMIT_PAGES} pages). Moving to next book.`);
+            break;
         }
-        if (sessionVisited.has(currentUrl)) {
-             console.log("        🔄 Page loop detected (Session). Stopping surf.");
+
+        if (globalVisited.has(currentUrl) || sessionVisited.has(currentUrl)) {
+             console.log("        🔄 Loop detected. Stopping surf.");
              break;
         }
 
@@ -200,14 +199,9 @@ async function surfLinear(
             const analysis = await analyzePage(page, []);
             
             if (analysis.type === 'CONTENT' && analysis.segments) {
-                
-                // --- LOOP CHECK: Did we jump back to the start? ---
+                // Loop check
                 const titleLower = (analysis.pageTitle || '').toLowerCase();
-                const isStartPage = titleLower.includes('הסכמה') || titleLower.includes('introduction') || titleLower.includes('חלק ראשון');
-                
-                // If we are deep in the book but see a start page title, abort.
-                if (sequence > 5 && isStartPage) {
-                    console.log("        🛑 Loop detected: Jumped back to Introduction. Stopping.");
+                if (sequence > 5 && (titleLower.includes('הסכמה') || titleLower.includes('introduction'))) {
                     break;
                 }
 
@@ -221,11 +215,11 @@ async function surfLinear(
                 if (analysis.nextUrl && analysis.nextUrl !== currentUrl) {
                     currentUrl = analysis.nextUrl;
                 } else {
-                    console.log("        🛑 End of Book (No 'Next' link found).");
+                    console.log("        🛑 End of Book (No Next link).");
                     currentUrl = null;
                 }
             } else {
-                console.log("        ⚠️ Text content lost or page is Index. Stopping surf.");
+                console.log("        ⚠️ No content found. Stopping surf.");
                 currentUrl = null;
             }
         } catch (e) {
@@ -254,13 +248,17 @@ async function drillRecursive(
         if (analysis.type === 'CONTENT') {
             console.log(`    🎯 Hit content at: ${breadcrumbPath.join(' > ')}`);
             await surfLinear(page, url, bookId, breadcrumbPath.slice(1).join(' - '), 1, visitedUrls);
-            return; 
+            return; // Stop drilling after finding one entry point in test mode
 
         } else if (analysis.type === 'INDEX' && analysis.links) {
             console.log(`    📂 Index: ${breadcrumbPath.slice(-1)[0]} (${analysis.links.length} items)`);
             visitedUrls.add(url);
 
-            for (const link of analysis.links) {
+            // In TEST MODE, only take the first link to drill down fast
+            const limit = 1; 
+            const links = analysis.links.slice(0, limit);
+
+            for (const link of links) {
                 await drillRecursive(
                     page, 
                     link.href, 
@@ -280,7 +278,8 @@ async function drillRecursive(
 
 // --- Main ---
 async function runScraper() {
-  console.log("🚀 Starting Golden Master Scraper...");
+  console.log("🚀 Starting TEST MODE Scraper...");
+  console.log(`   Limits: ${TEST_LIMIT_AUTHORS} Authors, ${TEST_LIMIT_BOOKS} Books each, ${TEST_LIMIT_PAGES} Pages deep.`);
   
   const browser = await puppeteer.launch({ 
       headless: false, 
@@ -296,28 +295,35 @@ async function runScraper() {
     );
     sidebarLinks.push(BASE_URL);
 
-    const authors = await page.evaluate(() => 
+    // Get Authors
+    let authors = await page.evaluate(() => 
         Array.from(document.querySelectorAll('a'))
              .map(a => ({ text: a.innerText.trim(), href: a.href }))
              .filter(l => l.href.includes('/books/') && l.text.length > 2 && !l.text.includes('בית'))
     );
 
-    console.log(`Found ${authors.length} Authors.`);
+    // Filter Authors for Test Mode (Skip to diverse authors)
+    // We take index 0 (Baal Shem Tov), 3 (Alter Rebbe), and 6 (Rebbe Rashab) to test different structures
+    authors = authors.filter((_, i) => [0, 3, 6].includes(i)).slice(0, TEST_LIMIT_AUTHORS);
+
+    console.log(`Found ${authors.length} Authors to test.`);
 
     for (const author of authors) {
-        console.log(`\n👤 Author: ${author.text}`);
+        console.log(`\n👤 Testing Author: ${author.text}`);
         const authorId = await getOrInsertAuthor(author.text, author.href);
 
         await page.goto(author.href, { waitUntil: 'networkidle2' });
         
-        const books = await page.evaluate((sidebar) => 
+        let books = await page.evaluate((sidebar) => 
             Array.from(document.querySelectorAll('a'))
                 .map(a => ({ text: a.innerText.trim(), href: a.href }))
                 .filter(l => l.href.includes('/books/') && !sidebar.includes(l.href) && l.text.length > 2),
             sidebarLinks
         );
 
-        console.log(`   Found ${books.length} Books.`);
+        // Limit Books
+        books = books.slice(0, TEST_LIMIT_BOOKS);
+        console.log(`   Testing ${books.length} Books.`);
 
         for (const book of books) {
             const bookId = await getOrInsertBook(authorId, book.text, book.href);
@@ -337,7 +343,8 @@ async function runScraper() {
   } catch (error) {
     console.error("Fatal:", error);
   } finally {
-    console.log("Done.");
+    console.log("🏁 Test Run Complete.");
+    // await browser.close(); // Keep open to inspect
   }
 }
 
