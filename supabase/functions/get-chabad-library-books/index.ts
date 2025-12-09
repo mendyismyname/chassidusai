@@ -16,6 +16,7 @@ serve(async (req) => {
     const response = await fetch(libraryUrl);
 
     if (!response.ok) {
+      console.error(`Failed to fetch library URL: ${response.statusText}`);
       return new Response(JSON.stringify({ error: `Failed to fetch library URL: ${response.statusText}` }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: response.status,
@@ -27,6 +28,7 @@ serve(async (req) => {
     const document = parser.parseFromString(html, 'text/html');
 
     if (!document) {
+      console.error('Failed to parse HTML');
       return new Response(JSON.stringify({ error: 'Failed to parse HTML' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
@@ -35,6 +37,7 @@ serve(async (req) => {
 
     const booksData: { author: string; title: string; url: string }[] = [];
     const bookListItems = document.querySelectorAll('div.book-list-item');
+    console.log(`Found ${bookListItems.length} book-list-item elements.`);
 
     bookListItems.forEach((item) => {
       const authorElement = item.querySelector('h2');
@@ -51,6 +54,7 @@ serve(async (req) => {
       });
     });
 
+    console.log(`Extracted ${booksData.length} books.`);
     return new Response(JSON.stringify({ books: booksData }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

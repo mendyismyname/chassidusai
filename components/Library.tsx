@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LIBRARY } from '../constants'; // Keep for structure, but actual books will come from DB
-import { Book, BookProgress, BookCategory } from '../types';
+import { Book, BookProgress, BookCategory } from '../types'; // Added BookCategory
 import { fetchChabadBookSections, fetchChabadSectionContent } from '../src/services/chabadLibraryScraper';
 import { fetchAndStoreChabadLibraryBooks, getChabadBooksFromDB } from '../src/services/chabadLibraryService'; // New import
 
