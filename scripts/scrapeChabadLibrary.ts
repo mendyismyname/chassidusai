@@ -68,13 +68,21 @@ async function insertSegments(chapterId: string, segments: string[]) {
 }
 
 // --- PAGE ANALYSIS (DOM-Based Cleaning) ---
+// --- Analysis Logic ---
 type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
 
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
 
-        // 1. Find the best container (The "Article Body")
+        // 0. Extract Page Title / Breadcrumb for Loop Detection
+        // Look for the header path (usually in a specific div or title tag)
+        const pageTitle = document.title || '';
+        const breadcrumbText = document.querySelector('.breadcrumbs')?.textContent || 
+                               document.querySelector('#path')?.textContent || 
+                               document.body.innerText.substring(0, 200); // Fallback
+
+        // 1. Text Content
         const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
@@ -96,51 +104,33 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             }
         });
 
-        // 2. DOM CLEANING (The "Structure" Fix)
+        // 2. DOM Cleaning & Extraction
         let cleanedSegments: string[] = [];
-        
         if (bestTextEl) {
             const clone = bestTextEl.cloneNode(true) as HTMLElement;
-
-            // A. Remove Headers
             const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
             headers.forEach(h => h.remove());
-
-            // B. Remove Breadcrumbs / Navigation / Menus
-            // We search for lists that look like menus (ul/ol with links)
             const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
             lists.forEach(l => l.remove());
-
-            // C. Remove Specific "Junk" Containers by Text Content
-            // If an element contains the entire list of authors (Baal Shem Tov... Maggid...), kill it.
+            
             const allDivs = clone.querySelectorAll('div, span, p');
             allDivs.forEach(el => {
                 const txt = (el as HTMLElement).innerText || '';
-                // Aggressive Menu Detection
-                if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) {
-                    el.remove();
-                }
-                if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) {
-                    el.remove();
-                }
+                if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
+                if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
             });
 
-            // D. Remove Separators
             const hrs = clone.querySelectorAll('hr');
             hrs.forEach(hr => hr.remove());
 
-            // E. Extract Text
             let rawText = clone.innerText;
-
-            // --- ARTIFACT REMOVAL ---
-            // Remove everything up to the navigation arrows
-            // Also remove the Chapter Letter if it's stuck to the arrow (e.g. ">>Aleph")
-            rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]?)(\s+)?/s, ''); 
+            // Robust Artifact Removal: Remove arrows + Chapter letters (e.g. >>Aleph)
+            rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]{1,4}(-[\u05D0-\u05EA])?)?(\s+)?/s, ''); 
 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
 
-        // 3. Navigation Button Detection
+        // 3. Next Button Logic
         const allAnchors = Array.from(document.querySelectorAll('a'));
         const nextLinkEl = allAnchors.find(a => {
             const t = a.innerText.trim();
@@ -166,7 +156,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
             );
 
         if (cleanedSegments.length > 0) {
-            return { type: 'CONTENT', segments: cleanedSegments, nextUrl };
+            return { type: 'CONTENT', segments: cleanedSegments, nextUrl, pageTitle };
         }
         if (subLinks.length > 0) {
             return { type: 'INDEX', links: subLinks };
