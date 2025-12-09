@@ -176,4 +176,146 @@ async function scrapeChabadLibrary() {
     // Strategy: Look for links inside tables or lists
     const bookLinks = authorPage$('table a, ul a, div a').toArray().filter(el => {
         const t = $(el).text().trim();
-        const h = $(el).attr('
+        const h = $(el).attr('href');
+        // Filter out "Home", "Contact", etc. by length or keywords if necessary
+        return t.length > 2 && /[\u0590-\u05FF]/.test(t) && h;
+    });
+
+    console.log(`   Found ${bookLinks.length} books for ${authorName}`);
+
+    for (const bookLink of bookLinks) {
+        const bookTitle = $(bookLink).text().trim();
+        const bookHref = $(bookLink).attr('href');
+        if (!bookHref) continue;
+
+        const absoluteBookUrl = new URL(bookHref, absoluteAuthorUrl).href;
+        if (processedUrls.has(absoluteBookUrl)) continue;
+        processedUrls.add(absoluteBookUrl);
+
+        // --- Database: Insert Book ---
+        let bookId: string | null = null;
+        try {
+            let { data: existingBook } = await supabase
+              .from('books')
+              .select('id')
+              .eq('original_link', absoluteBookUrl)
+              .single();
+
+            if (existingBook) {
+              bookId = existingBook.id;
+            } else {
+              const { data, error } = await supabase
+                .from('books')
+                .insert({
+                  author_id: authorId,
+                  title: bookTitle,
+                  category: authorName, 
+                  original_link: absoluteBookUrl,
+                })
+                .select('id')
+                .single();
+              if (error) throw error;
+              bookId = data.id;
+              console.log(`   >> Processing Book: ${bookTitle}`);
+            }
+        } catch (e: any) {
+            continue;
+        }
+
+        if (!bookId) continue;
+
+        // Level 3 & 4: Chapters and Content
+        // (This logic from your original script is mostly good, but we ensure we grab the right links)
+        const bookPage$ = await fetchPage(absoluteBookUrl);
+        if (!bookPage$) continue;
+
+        const chapterLinks = bookPage$('a').toArray().filter(el => {
+            const t = $(el).text().trim();
+            // Match Hebrew letters (e.g., 'א', 'ב') or "Chapter X"
+            return (t.length < 15 && /[\u0590-\u05FF]/.test(t)) || t.includes('פרק');
+        });
+
+        let chapterSequence = 0;
+        for (const chapLink of chapterLinks) {
+            const chapTitle = $(chapLink).text().trim();
+            const chapHref = $(chapLink).attr('href');
+            if(!chapHref) continue;
+
+            // Skip navigation links
+            if (chapTitle.includes('הבא') || chapTitle.includes('הקודם') || chapTitle.includes('תוכן')) continue;
+
+            const absoluteChapUrl = new URL(chapHref, absoluteBookUrl).href;
+            if (processedUrls.has(absoluteChapUrl)) continue;
+            processedUrls.add(absoluteChapUrl);
+            
+            chapterSequence++;
+
+            // --- Database: Insert Chapter ---
+            let chapterId: string | null = null;
+            try {
+                let { data: existingChap } = await supabase.from('chapters').select('id').eq('original_link', absoluteChapUrl).single();
+                
+                if(existingChap) {
+                    chapterId = existingChap.id;
+                } else {
+                    const { data, error } = await supabase.from('chapters').insert({
+                        book_id: bookId,
+                        title: chapTitle,
+                        sequence_number: chapterSequence,
+                        original_link: absoluteChapUrl
+                    }).select('id').single();
+                    if(error) throw error;
+                    chapterId = data.id;
+                }
+            } catch(e) { continue; }
+
+            if (!chapterId) continue;
+
+            // Level 4: Get Text
+            const contentPage$ = await fetchPage(absoluteChapUrl);
+            if (!contentPage$) continue;
+
+            // Broader selector for content (tables, divs, spans)
+            // We look for the container with the most Hebrew text
+            let bestContent = "";
+            let maxLen = 0;
+            
+            contentPage$('body').find('div, table, td').each((i, el) => {
+                const text = $(el).text();
+                // Check if this element has a lot of Hebrew and isn't just the whole body
+                if (text.length > maxLen && text.length < 50000 && /[\u0590-\u05FF]/.test(text)) {
+                    // Check density (avoid navigation menus)
+                    if (!$(el).find('a').length || text.length > 500) {
+                        bestContent = $(el).html() || "";
+                        maxLen = text.length;
+                    }
+                }
+            });
+
+            if (!bestContent) continue;
+
+            // Segment and Save
+            const segments = bestContent.split(/(<p[^>]*>|<\/p>|<br\s*\/?>|<\/div>|<\/tr>)/i);
+            let segSeq = 0;
+            for(const seg of segments) {
+                const clean = cleanText(seg);
+                if (clean.length > 10) { // arbitrary threshold for "real sentence"
+                    segSeq++;
+                    // Insert segment (fire and forget to speed up)
+                    supabase.from('segments').insert({
+                        chapter_id: chapterId,
+                        sequence_number: segSeq,
+                        hebrew_text: clean
+                    }).then(({error}) => {
+                        if (error && error.code !== '23505') console.error('Seg Error:', error.message);
+                    });
+                }
+            }
+            console.log(`      Saved ${segSeq} segments for ${chapTitle}`);
+        }
+    }
+  }
+  console.log("Scraping complete!");
+}
+
+scrapeChabadLibrary().catch(console.error);
