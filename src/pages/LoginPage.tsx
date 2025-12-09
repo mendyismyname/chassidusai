@@ -9,12 +9,7 @@ interface LoginPageProps {
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onClose, onLoginSuccess }) => {
-  // Since we're using a functional component, we don't need to check for isLoading here
-  // The session state is handled by the SessionContextProvider
-
   useEffect(() => {
-    // We don't need to manually check session here since SessionContextProvider handles it
-    // But we can listen for auth state changes if needed
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         onLoginSuccess();
@@ -22,7 +17,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onClose, onLoginSuccess }) => {
     });
 
     return () => {
-      authListener.subscription.unsubscribe();
+      try {
+        authListener.subscription.unsubscribe();
+      } catch (e) {
+        console.log('Error unsubscribing from auth listener');
+      }
     };
   }, [onLoginSuccess]);
 
@@ -31,7 +30,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onClose, onLoginSuccess }) => {
       {/* Close Button */}
       <button 
         onClick={onClose} 
-        className={`fixed top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-all z-50 text-gray-400 hover:text-gray-900 dark:hover:text-gray-200`}
+        className="fixed top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-all z-50 text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
       >
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -45,13 +44,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onClose, onLoginSuccess }) => {
         
         <Auth
           supabaseClient={supabase}
-          providers={[]} // Only email/password for now
+          providers={[]}
           appearance={{
             theme: ThemeSupa,
             variables: {
               default: {
                 colors: {
-                  brand: 'hsl(210 100% 40%)', // A shade of blue
+                  brand: 'hsl(210 100% 40%)',
                   brandAccent: 'hsl(210 100% 30%)',
                   brandButtonText: 'white',
                   defaultButtonBackground: 'hsl(210 100% 98%)',
@@ -93,12 +92,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onClose, onLoginSuccess }) => {
               },
             },
           }}
-          theme="dark" // Default to dark theme for auth UI
+          theme="dark"
         />
         
         <button 
           onClick={onClose} 
-          className={`mt-4 w-full px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border text-center dark:border-gray-800 hover:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900`}
+          className="mt-4 w-full px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all border text-center dark:border-gray-800 hover:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900"
         >
           Continue as Guest
         </button>
