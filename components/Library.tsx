@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LIBRARY } from '../constants';
 import { Book, BookProgress } from '../types';
-import { fetchChabadBookSections, fetchChabadSectionContent } from '../services/chabadLibraryScraper'; // Import new service
+import { fetchChabadBookSections, fetchChabadSectionContent } from '../src/services/chabadLibraryScraper'; // Corrected import path
 
 interface LibraryProps {
   onSelectBook: (book: Book, content?: string) => void; // Modified to accept content
