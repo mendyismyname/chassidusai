@@ -21,13 +21,6 @@ interface Profile {
   bio: string | null;
   skills: string[] | null;
   experience: any[] | null;
-  theme: string | null;
-  font_size: number | null;
-  line_height: number | null;
-  translation_mode: string | null;
-  text_align: string | null;
-  progress: any[] | null;
-  updated_at: string | null;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -57,13 +50,11 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       setSession(currentSession);
       setUser(currentSession?.user || null);
-      
       if (currentSession?.user) {
         await fetchProfile(currentSession.user.id);
       } else {
         setProfile(null);
       }
-      
       setIsLoading(false);
     });
 
@@ -71,11 +62,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       setSession(initialSession);
       setUser(initialSession?.user || null);
-      
       if (initialSession?.user) {
         fetchProfile(initialSession.user.id);
       }
-      
       setIsLoading(false);
     });
 

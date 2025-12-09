@@ -3,7 +3,7 @@ import { getChapterContent, ChapterContent } from '../services/libraryService';
 
 export const useChapterContent = (chapterId: string | null) => {
   const [content, setContent] = useState<ChapterContent[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

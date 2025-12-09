@@ -53,7 +53,7 @@ const Reader: React.FC<ReaderProps> = ({
   const [minimapItems, setMinimapItems] = useState<MinimapItem[]>([]);
   
   // Use the new hook for chapter content
-  const { content: chapterContent, loading, error } = useChapterContent(currentChapterId || null);
+  const { content: chapterContent, loading, error } = useChapterContent(currentChapterId);
 
   // Initialize Chunks when chapter content loads
   useEffect(() => {

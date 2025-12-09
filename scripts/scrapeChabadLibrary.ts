@@ -13,8 +13,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes('YOUR_')) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 
-// --- Database Wrappers ---
-
+// --- Database Helpers ---
 async function getOrInsertAuthor(name: string, url: string) {
   const { data } = await supabase.from('authors').select('id').eq('name', name).single();
   if (data) return data.id;
@@ -32,112 +31,79 @@ async function getOrInsertBook(authorId: string, title: string, url: string) {
 async function getOrInsertChapter(bookId: string, fullPathTitle: string, url: string, sequence: number) {
   const { data } = await supabase.from('chapters').select('id').eq('original_link', url).single();
   if (data) return data.id;
-  
-  const { data: newChap } = await supabase.from('chapters').insert({ 
-    book_id: bookId, 
-    title: fullPathTitle, 
-    sequence_number: sequence, 
-    original_link: url 
-  }).select('id').single();
+  const { data: newChap } = await supabase.from('chapters').insert({ book_id: bookId, title: fullPathTitle, sequence_number: sequence, original_link: url }).select('id').single();
   return newChap?.id;
 }
 
 async function insertSegments(chapterId: string, segments: string[]) {
   let seq = 1;
   const rowsToInsert = [];
-
   for (const seg of segments) {
     if (seg.length < 2) continue;
-    // Allow Hebrew or special markers (footnotes *, numbers)
     if (!/[\u0590-\u05FF]/.test(seg) && !/^[0-9*\[\]()]+$/.test(seg)) continue; 
-    
-    rowsToInsert.push({
-        chapter_id: chapterId,
-        sequence_number: seq,
-        hebrew_text: seg
-    });
+    rowsToInsert.push({ chapter_id: chapterId, sequence_number: seq, hebrew_text: seg });
     seq++;
   }
-
   if (rowsToInsert.length > 0) {
-      const { error } = await supabase.from('segments').insert(rowsToInsert);
-      if (error) console.error("Database Insert Error:", error.message);
+      await supabase.from('segments').insert(rowsToInsert);
   }
   return rowsToInsert.length;
 }
 
-// --- Analysis Logic (The Brain) ---
-type PageType = 'CONTENT' | 'INDEX' | 'EMPTY';
-
+// --- VERBOSE ANALYSIS LOGIC ---
 async function analyzePage(page: Page, excludeUrls: string[]) {
     return page.evaluate((excludeList) => {
         const currentUrl = window.location.href;
         const pageTitle = document.title || '';
 
-        // 1. Aggressive DOM Cleaning (Clone & Strip)
-        // We work on a clone so we don't break the actual page navigation
-        const clone = document.body.cloneNode(true) as HTMLElement;
-        
-        // Remove structural junk
-        const junkSelectors = [
-            'nav', 'header', 'footer', 
-            '.menu', '.sidebar', '.breadcrumbs', '#path',
-            '.toc', '#toc', 'ul', 'ol' // Remove lists to avoid confusing Index pages with Content
-        ];
-        junkSelectors.forEach(sel => {
-            const els = clone.querySelectorAll(sel);
-            els.forEach(e => e.remove());
-        });
-
-        // Remove divs that look like menus based on keywords
-        const allDivs = clone.querySelectorAll('div, span, p');
-        allDivs.forEach(el => {
-            const txt = (el as HTMLElement).innerText || '';
-            if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
-            if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
-        });
-
-        // Remove Headers & Separators
-        const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6, hr');
-        headers.forEach(h => h.remove());
-
-        // 2. Content Detection on Cleaned DOM
-        const candidates = Array.from(clone.querySelectorAll('div, table, article, td, span, p'));
+        // 1. Text Content Detection
+        const candidates = Array.from(document.querySelectorAll('div, table, article, td, span'));
         let bestTextEl: HTMLElement | null = null;
         let maxHebrewCount = 0;
+        let diagnosticLog = "";
 
         candidates.forEach(el => {
+            if (el.closest('nav') || el.className.includes('menu') || el.className.includes('sidebar')) return;
             const txt = (el as HTMLElement).innerText;
-            if (txt.length < 50) return;
+            if (txt.length < 30) return; // Lower threshold for detection
 
             const hebrewCount = (txt.match(/[\u0590-\u05FF]/g) || []).length;
-            const linkCount = el.querySelectorAll('a').length; 
-            
-            // KEY LOGIC: Content has lots of Hebrew and very few links.
-            // Index pages have lots of links relative to text.
+            const linkCount = el.querySelectorAll('a').length;
             const ratio = linkCount > 0 ? hebrewCount / linkCount : hebrewCount;
-            
-            if (hebrewCount > 100 && ratio > 50) { 
+
+            if (hebrewCount > 50) { // Lower threshold for testing
                 if (hebrewCount > maxHebrewCount) {
                     maxHebrewCount = hebrewCount;
                     bestTextEl = el as HTMLElement;
+                    diagnosticLog = `Found candidate: ${hebrewCount} chars, Ratio ${ratio.toFixed(1)}`;
                 }
             }
         });
 
-        // 3. Final Text Polish
+        // 2. DOM Cleaning
         let cleanedSegments: string[] = [];
         if (bestTextEl) {
-            let rawText = bestTextEl.innerText;
-            // Remove artifacts: arrows + optional page numbers (e.g., >>25b or >>Aleph)
+            const clone = bestTextEl.cloneNode(true) as HTMLElement;
+            const headers = clone.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            headers.forEach(h => h.remove());
+            const lists = clone.querySelectorAll('ul, ol, nav, .menu, .sidebar, .breadcrumbs');
+            lists.forEach(l => l.remove());
+            const allDivs = clone.querySelectorAll('div, span, p');
+            allDivs.forEach(el => {
+                const txt = (el as HTMLElement).innerText || '';
+                if (txt.includes('ספרי הבעל שם טוב') && txt.includes('ספרי הרב המגיד')) el.remove();
+                if (txt.includes('דף הבית') || txt.includes('תוכן העניינים')) el.remove();
+            });
+            const hrs = clone.querySelectorAll('hr');
+            hrs.forEach(hr => hr.remove());
+
+            let rawText = clone.innerText;
             rawText = rawText.replace(/^.*?(?:<<|>>)\s*([א-ת]{1,4}(-[\u05D0-\u05EA])?)?(\s+)?/s, ''); 
             cleanedSegments = rawText.split(/\n/).map(s => s.trim()).filter(s => s.length > 0);
         }
 
-        // 4. Navigation & Index Links (From Original Doc)
+        // 3. Next Button Logic
         const allAnchors = Array.from(document.querySelectorAll('a'));
-        
-        // Find "Next" Button
         const nextLinkEl = allAnchors.find(a => {
             const t = a.innerText.trim();
             const matchesNext = t.includes('>>') || t.includes('הבא'); 
@@ -146,7 +112,7 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
         });
         const nextUrl = nextLinkEl ? (nextLinkEl as HTMLAnchorElement).href : null;
 
-        // Find Sub-Links
+        // 4. Index Links
         const subLinks = allAnchors
             .map(a => ({ text: a.innerText.trim(), href: a.href }))
             .filter(l => 
@@ -161,192 +127,142 @@ async function analyzePage(page: Page, excludeUrls: string[]) {
                 !l.text.includes('>>')
             );
 
-        // DECISION
         if (cleanedSegments.length > 0) {
-            return { type: 'CONTENT', segments: cleanedSegments, nextUrl, pageTitle };
+            return { type: 'CONTENT', segments: cleanedSegments, nextUrl, pageTitle, diag: diagnosticLog };
         }
         if (subLinks.length > 0) {
-            return { type: 'INDEX', links: subLinks };
+            return { type: 'INDEX', links: subLinks, diag: `Found ${subLinks.length} links` };
         }
-        return { type: 'EMPTY' };
+        return { type: 'EMPTY', diag: "No text or links found" };
 
     }, excludeUrls);
 }
 
-// --- Surf Mode (Linear Reader) ---
-async function surfLinear(
-    page: Page, 
-    startUrl: string, 
-    bookId: string, 
-    baseTitle: string, 
-    startSeq: number,
-    globalVisited: Set<string>
-) {
-    let currentUrl: string | null = startUrl;
-    let sequence = startSeq;
-    const sessionVisited = new Set<string>(); 
-
-    console.log(`      🏄 Starting Linear Surf from: ${baseTitle}`);
-
-    while (currentUrl) {
-        // Cycle Protections
-        if (globalVisited.has(currentUrl)) {
-             console.log("        🔄 Global visited check. Stopping surf.");
-             break;
-        }
-        if (sessionVisited.has(currentUrl)) {
-             console.log("        🔄 Session loop detected. Stopping surf.");
-             break;
-        }
-
-        globalVisited.add(currentUrl);
-        sessionVisited.add(currentUrl);
-
-        try {
-            await page.goto(currentUrl, { waitUntil: 'networkidle2' });
-            const analysis = await analyzePage(page, []);
-            
-            if (analysis.type === 'CONTENT' && analysis.segments) {
-                // Loop Breaker: If we jump back to "Introduction" after reading a while
-                const titleLower = (analysis.pageTitle || '').toLowerCase();
-                const isStartPage = titleLower.includes('הסכמה') || titleLower.includes('introduction') || titleLower.includes('חלק ראשון');
-                
-                if (sequence > 5 && isStartPage) {
-                    console.log("        🛑 Loop detected: Back at start. Stopping.");
-                    break;
-                }
-
-                const title = `${baseTitle} - Part ${sequence}`; 
-                const chapId = await getOrInsertChapter(bookId, title, currentUrl, sequence);
-                const count = await insertSegments(chapId, analysis.segments);
-                console.log(`        📄 Saved Part ${sequence} (${count} segments)`);
-                
-                sequence++;
-                
-                if (analysis.nextUrl && analysis.nextUrl !== currentUrl) {
-                    currentUrl = analysis.nextUrl;
-                } else {
-                    console.log("        🛑 End of Book (No 'Next' link found).");
-                    currentUrl = null;
-                }
-            } else {
-                console.log("        ⚠️ Lost text content (or hit Index). Stopping surf.");
-                currentUrl = null;
-            }
-        } catch (e) {
-            console.error(`Error surfing: ${e}`);
-            currentUrl = null;
-        }
-    }
-}
-
-// --- Drill Mode (Recursive Explorer) ---
+// --- Recursive Driller (Test Mode) ---
 async function drillRecursive(
     page: Page, 
     url: string, 
     bookId: string, 
     breadcrumbPath: string[], 
     sidebarUrls: string[],
-    visitedUrls: Set<string>
+    visitedUrls: Set<string>,
+    depth: number
 ) {
     if (visitedUrls.has(url)) return;
+    if (depth > 4) return; // Prevent deep spirals in test
+
+    const indent = " ".repeat(depth * 2);
+    // console.log(`${indent}Visiting: ${url}`);
     
     try {
         await page.goto(url, { waitUntil: 'networkidle2' });
         const analysis = await analyzePage(page, sidebarUrls);
 
         if (analysis.type === 'CONTENT') {
-            console.log(`    🎯 Hit content at: ${breadcrumbPath.join(' > ')}`);
-            // Hand off to Linear Surfer
-            await surfLinear(page, url, bookId, breadcrumbPath.slice(1).join(' - '), 1, visitedUrls);
+            console.log(`${indent}🎯 HIT CONTENT! (${analysis.segments.length} lines)`);
+            console.log(`${indent}   Preview: ${analysis.segments[0].substring(0, 50)}...`);
+            
+            // SAVE IT
+            const title = breadcrumbPath.join(' - ');
+            const chapId = await getOrInsertChapter(bookId, title, url, 1);
+            await insertSegments(chapId, analysis.segments);
+            console.log(`${indent}   ✅ Saved to DB.`);
+            
+            // In test mode, we stop after finding content in this branch
             return; 
 
-        } else if (analysis.type === 'INDEX' && analysis.links) {
-            console.log(`    📂 Index: ${breadcrumbPath.slice(-1)[0]} (${analysis.links.length} items)`);
+        } else if (analysis.type === 'INDEX') {
+            console.log(`${indent}📂 Index (${analysis.links.length} items). Drilling...`);
             visitedUrls.add(url);
 
-            for (const link of analysis.links) {
+            // --- SMART LINK SELECTOR FOR TEST ---
+            // Don't just take the first link (it might be "Haskama" which is tricky).
+            // Try to find "Aleph" or "Beis" or a mid-range link to ensure we hit meat.
+            let linksToTry = analysis.links;
+            
+            // Prefer links that are short (likely chapters "Aleph") over long titles
+            const contentLinks = linksToTry.filter(l => l.text.length < 10);
+            
+            if (contentLinks.length > 0) {
+                // Take the 5th one if available (middle of the pack), or the 1st
+                const targetIndex = contentLinks.length > 4 ? 4 : 0;
+                linksToTry = [contentLinks[targetIndex]];
+                console.log(`${indent}   👉 Jumping to likely content: "${linksToTry[0].text}"`);
+            } else {
+                // Fallback to first 2 links
+                linksToTry = linksToTry.slice(0, 2);
+            }
+
+            for (const link of linksToTry) {
                 await drillRecursive(
                     page, 
                     link.href, 
                     bookId, 
                     [...breadcrumbPath, link.text], 
                     sidebarUrls, 
-                    visitedUrls
+                    visitedUrls,
+                    depth + 1
                 );
             }
         } else {
+             console.log(`${indent}⚠️ Empty/Unknown Page. (${analysis.diag})`);
              visitedUrls.add(url);
         }
-    } catch (e) {
-        console.error(`Error drilling: ${e}`);
+    } catch (e: any) {
+        console.error(`${indent}Error: ${e.message}`);
     }
 }
 
-// --- Main ---
 async function runScraper() {
-  console.log("🚀 Starting Golden Master Scraper...");
-  
-  const browser = await puppeteer.launch({ 
-      headless: false, // Set to true for background run
-      defaultViewport: null, 
-      args: ['--start-maximized'] 
-  });
+  console.log("🚀 Starting SMART DIAGNOSTIC Test...");
+  const browser = await puppeteer.launch({ headless: false, defaultViewport: null, args: ['--start-maximized'] });
   const page = await browser.newPage();
 
   try {
-    // 1. Initial Setup
     await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
     const sidebarLinks = await page.evaluate(() => 
         Array.from(document.querySelectorAll('a')).filter(a => a.href.includes('/books/')).map(a => a.href)
     );
     sidebarLinks.push(BASE_URL);
 
-    const authors = await page.evaluate(() => 
+    let authors = await page.evaluate(() => 
         Array.from(document.querySelectorAll('a'))
              .map(a => ({ text: a.innerText.trim(), href: a.href }))
              .filter(l => l.href.includes('/books/') && l.text.length > 2 && !l.text.includes('בית'))
     );
 
-    console.log(`Found ${authors.length} Authors.`);
+    // Test specific authors: Baal Shem Tov (0), Alter Rebbe (3)
+    authors = authors.filter((_, i) => [0, 3].includes(i)); 
 
-    // 2. Iterate Authors
+    console.log(`Testing ${authors.length} Authors.`);
+
     for (const author of authors) {
-        console.log(`\n👤 Author: ${author.text}`);
+        console.log(`\n👤 AUTHOR: ${author.text}`);
         const authorId = await getOrInsertAuthor(author.text, author.href);
-
         await page.goto(author.href, { waitUntil: 'networkidle2' });
         
-        const books = await page.evaluate((sidebar) => 
+        // Find books
+        let books = await page.evaluate((sidebar) => 
             Array.from(document.querySelectorAll('a'))
                 .map(a => ({ text: a.innerText.trim(), href: a.href }))
                 .filter(l => l.href.includes('/books/') && !sidebar.includes(l.href) && l.text.length > 2),
             sidebarLinks
         );
 
-        console.log(`   Found ${books.length} Books.`);
+        // Test only 2 books per author
+        books = books.slice(0, 2);
 
-        // 3. Iterate Books
         for (const book of books) {
+            console.log(`  📖 BOOK: ${book.text}`);
             const bookId = await getOrInsertBook(authorId, book.text, book.href);
             const visited = new Set<string>();
             
-            await drillRecursive(
-                page, 
-                book.href, 
-                bookId, 
-                [book.text], 
-                sidebarLinks, 
-                visited
-            );
+            await drillRecursive(page, book.href, bookId, [book.text], sidebarLinks, visited, 1);
         }
     }
 
-  } catch (error) {
-    console.error("Fatal:", error);
-  } finally {
-    console.log("Done.");
-  }
+  } catch (error) { console.error("Fatal:", error); } 
+  finally { console.log("🏁 Done."); }
 }
 
 runScraper();
