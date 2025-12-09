@@ -4,31 +4,31 @@ export const LIBRARY: BookCategory[] = [
   {
     title: "Torah Shebaal Peh",
     books: [
-      { id: 'baal-shem-tov', title: 'ספרי הבעל שם טוב', category: 'General' },
-      { id: 'maggid', title: 'ספרי הרב המגיד ממעזריטש', category: 'General' },
+      // { id: 'baal-shem-tov', title: 'ספרי הבעל שם טוב', category: 'General' },
+      // { id: 'maggid', title: 'ספרי הרב המגיד ממעזריטש', category: 'General' },
     ]
   },
   {
     title: "Chabad Chassidus",
     books: [
-      { id: 'alter-rebbe', title: 'ספרי כ"ק אדמו"ר הזקן', category: 'Chabad' },
-      { id: 'middle-rebbe', title: 'ספרי כ"ק אדמו"ר האמצעי', category: 'Chabad' },
-      { id: 'tzemach-tzedek', title: 'ספרי כ"ק אדמו"ר ה"צמח צדק"', category: 'Chabad' },
-      { id: 'maharash', title: 'ספרי כ"ק אדמו"ר מהר"ש נ"ע', category: 'Chabad' },
-      { id: 'rashab', title: 'ספרי כ"ק אדמו"ר מוהרש"ב נ"ע', category: 'Chabad' },
-      { id: 'rayatz', title: 'ספרי כ"ק אדמו"ר מוהריי"צ נ"ע', category: 'Chabad' },
-      { id: 'rebbe', title: 'ספרי כ"ק אדמו"ר', category: 'Chabad' },
+      // { id: 'alter-rebbe', title: 'ספרי כ"ק אדמו"ר הזקן', category: 'Chabad' },
+      // { id: 'middle-rebbe', title: 'ספרי כ"ק אדמו"ר האמצעי', category: 'Chabad' },
+      // { id: 'tzemach-tzedek', title: 'ספרי כ"ק אדמו"ר ה"צמח צדק"', category: 'Chabad' },
+      // { id: 'maharash', title: 'ספרי כ"ק אדמו"ר מהר"ש נ"ע', category: 'Chabad' },
+      // { id: 'rashab', title: 'ספרי כ"ק אדמו"ר מוהרש"ב נ"ע', category: 'Chabad' },
+      // { id: 'rayatz', title: 'ספרי כ"ק אדמו"ר מוהריי"צ נ"ע', category: 'Chabad' },
+      // { id: 'rebbe', title: 'ספרי כ"ק אדמו"ר', category: 'Chabad' },
     ]
   },
   {
     title: "Deep Analysis",
     books: [
-      { id: 'imrei-binah', title: 'אמרי בינה', category: 'Deep' },
-      { id: 'ner-mitzvah', title: 'נר מצוה ותורה אור', category: 'Deep' },
-      { id: 'biurei-hamilot', title: 'פירוש המילות', category: 'Deep' },
-      { id: 'shaarei-orah', title: 'שערי אורה', category: 'Deep' },
-      { id: 'shaarei-teshuvah', title: 'שערי תשובה', category: 'Deep' },
-      { id: 'a1b2c3d4-e5f6-7890-1234-567890abcdef', title: 'תורת חיים', category: 'Deep' },
+      // { id: 'imrei-binah', title: 'אמרי בינה', category: 'Deep' },
+      // { id: 'ner-mitzvah', title: 'נר מצוה ותורה אור', category: 'Deep' },
+      // { id: 'biurei-hamilot', title: 'פירוש המילות', category: 'Deep' },
+      // { id: 'shaarei-orah', title: 'שערי אורה', category: 'Deep' },
+      // { id: 'shaarei-teshuvah', title: 'שערי תשובה', category: 'Deep' },
+      // { id: 'a1b2c3d4-e5f6-7890-1234-567890abcdef', title: 'תורת חיים', category: 'Deep' },
     ]
   }
 ];
@@ -55,5 +55,5 @@ export const MOCK_TRANSLATION = [
   "And what is written <b>In the beginning (B'reishit)</b>—with Wisdom; and similarly it is said: <b>B'reishit</b> is also a specific Utterance. This is the aspect of <i>Chochmah Tata'ah</i>, as in <b>The Lord founded the earth with Wisdom</b>; <b>You made them all with Wisdom</b>.",
   "And this is <b>In the beginning</b>—with the Utterance of <b>B'reishit</b>. As it is written: <b>And is it not that it could have been created with one Utterance?</b> And this is the aspect of Wisdom within the Speech of the Ten Utterances, which is called Wisdom at the end, which is rooted in Wisdom in the beginning (in the head), which is the source of Wisdom within Speech.",
   "And behold, from the language of the Zohar: <b>He looked into the Torah and created the world</b>. And similarly it is brought in the Midrash: <b>And I was by Him as a nursling (amon)</b>—like an artisan (uman) who looks at the blueprint where the manner of the building is depicted, so <b>God said, Let there be etc.</b>; He looked at this matter in the Torah. As it is written: <b>He looked into the Torah etc.</b> And so for every single Utterance in particular.",
-  "And for this reason, everything was created with the Wisdom of the Torah, for even the Utterance of <b>B'reishit</b> which includes the Ten Utterances is stated in the blueprint of the Torah. And that which is written <b>The Lord founded the earth with Wisdom; You made them all with Wisdom</b>—which is the Utterance of <b>B'reishit</b> with Wisdom etc."
+  "And what is written <b>The Lord founded the earth with Wisdom; You made them all with Wisdom</b>—which is the Utterance of <b>B'reishit</b> with Wisdom etc."
 ];

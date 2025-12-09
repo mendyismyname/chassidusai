@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { LIBRARY } from '../constants';
-import { Book, BookProgress } from '../types';
-import { fetchChabadBookSections, fetchChabadSectionContent } from '../src/services/chabadLibraryScraper'; // Corrected import path
+import React, { useState, useEffect } from 'react';
+import { LIBRARY } from '../constants'; // Keep for structure, but actual books will come from DB
+import { Book, BookProgress, BookCategory } from '../types';
+import { fetchChabadBookSections, fetchChabadSectionContent } from '../src/services/chabadLibraryScraper';
+import { fetchAndStoreChabadLibraryBooks, getChabadBooksFromDB } from '../src/services/chabadLibraryService'; // New import
 
 interface LibraryProps {
   onSelectBook: (book: Book, content?: string) => void; // Modified to accept content
@@ -13,14 +14,48 @@ interface LibraryProps {
 }
 
 const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen, onClose, theme, progress }) => {
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(LIBRARY[1].title); // Default open Chabad
+  const [expandedCategory, setExpandedCategory] = useState<string | null>('Chabad Chassidus'); // Default open Chabad
+  const [dbBooks, setDbBooks] = useState<Book[]>([]);
+  const [isLoadingDbBooks, setIsLoadingDbBooks] = useState(true);
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeMessage, setScrapeMessage] = useState<string | null>(null);
 
-  // State for Chabad Library Scraper
+  // State for Chabad Library Scraper (for individual sections)
   const [chabadBookUrlInput, setChabadBookUrlInput] = useState('');
   const [fetchedChabadSections, setFetchedChabadSections] = useState<{ title: string; url: string }[]>([]);
   const [isLoadingChabadSections, setIsLoadingChabadSections] = useState(false);
   const [chabadScrapeError, setChabadScrapeError] = useState<string | null>(null);
   const [selectedOnlineSectionUrl, setSelectedOnlineSectionUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadBooks = async () => {
+      setIsLoadingDbBooks(true);
+      try {
+        const books = await getChabadBooksFromDB();
+        setDbBooks(books);
+      } catch (error) {
+        console.error("Failed to load books from database:", error);
+      } finally {
+        setIsLoadingDbBooks(false);
+      }
+    };
+    loadBooks();
+  }, []);
+
+  const handleScrapeAndStoreBooks = async () => {
+    setIsScraping(true);
+    setScrapeMessage('Scraping books from chabadlibrary.org...');
+    try {
+      const newBooks = await fetchAndStoreChabadLibraryBooks();
+      setDbBooks(prev => [...prev, ...newBooks]); // Add new books to state
+      setScrapeMessage(`Successfully scraped and added ${newBooks.length} new books!`);
+    } catch (error: any) {
+      setScrapeMessage(`Error scraping books: ${error.message}`);
+    } finally {
+      setIsScraping(false);
+      setTimeout(() => setScrapeMessage(null), 5000); // Clear message after 5 seconds
+    }
+  };
 
   const toggleCategory = (title: string) => {
     setExpandedCategory(prev => prev === title ? null : title);
@@ -71,6 +106,17 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
     }
   };
 
+  // Combine hardcoded categories with fetched books
+  const allCategories: BookCategory[] = LIBRARY.map(cat => ({ ...cat, books: [] })); // Start with empty hardcoded categories
+  
+  // Add fetched books to a 'Chabad Chassidus' category or create one if it doesn't exist
+  let chabadCategory = allCategories.find(cat => cat.title === 'Chabad Chassidus');
+  if (!chabadCategory) {
+    chabadCategory = { title: 'Chabad Chassidus', books: [] };
+    allCategories.push(chabadCategory);
+  }
+  chabadCategory.books = dbBooks; // Assign fetched books here
+
   return (
     <>
       {/* Backdrop */}
@@ -99,55 +145,78 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
 
         <div className="flex-1 overflow-y-auto px-6 pb-20 custom-scrollbar">
           <div className="space-y-6">
-            {LIBRARY.map((category) => (
-              <div key={category.title}>
-                <button 
-                  onClick={() => toggleCategory(category.title)}
-                  className={`flex items-center gap-2 w-full text-left py-2 font-medium uppercase tracking-wider text-xs opacity-60 hover:opacity-100 transition-opacity ${isDark ? 'text-gray-300' : 'text-gray-600'}`}
-                >
-                  <span className={`transform transition-transform duration-200 ${expandedCategory === category.title ? 'rotate-90' : ''}`}>
-                    ▶
-                  </span>
-                  {category.title}
-                </button>
-                
-                <div className={`mt-2 space-y-1 overflow-hidden transition-all duration-300 ${expandedCategory === category.title ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                  {category.books.map((book) => {
-                    const prog = getBookProgress(book.id);
-                    return (
-                      <button
-                        key={book.id}
-                        onClick={() => onSelectBook(book)}
-                        className={`
-                          group w-full text-right px-4 py-3 rounded-md text-base font-hebrew-serif transition-all duration-200 border border-transparent relative overflow-hidden
-                          ${selectedBookId === book.id 
-                            ? 'bg-gray-200 dark:bg-gray-800 text-black dark:text-white font-bold'
-                            : 'hover:bg-gray-100 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
-                          }
-                          ${isDark ? 'text-gray-300' : 'text-gray-700'}
-                        `}
-                      >
-                         <div className="flex justify-between items-center relative z-10">
-                            {prog > 0 && (
-                              <span className="text-[10px] font-sans opacity-40">{prog}%</span>
-                            )}
-                            <span>{book.title}</span>
-                         </div>
-                         {/* Progress Bar Background */}
-                         {prog > 0 && (
-                             <div 
-                                className={`absolute bottom-0 right-0 top-0 opacity-5 ${isDark ? 'bg-white' : 'bg-black'}`}
-                                style={{ width: `${prog}%` }}
-                             />
-                         )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+            {/* Scrape Button */}
+            <div className="mb-6">
+              <button
+                onClick={handleScrapeAndStoreBooks}
+                disabled={isScraping}
+                className={`w-full py-3 rounded-md text-xs font-bold uppercase tracking-widest transition-all
+                  ${isScraping ? 'opacity-50 cursor-not-allowed' : ''}
+                  ${isDark ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-blue-600 text-white hover:bg-blue-700'}
+                `}
+              >
+                {isScraping ? 'Scraping...' : 'Scrape Chabad Library Books'}
+              </button>
+              {scrapeMessage && (
+                <p className={`mt-2 text-center text-xs ${scrapeMessage.startsWith('Error') ? 'text-red-500' : 'text-green-500'}`}>
+                  {scrapeMessage}
+                </p>
+              )}
+            </div>
 
-            {/* New Section for Online Chabad Library */}
+            {isLoadingDbBooks ? (
+              <div className="text-center opacity-50 text-sm">Loading books...</div>
+            ) : (
+              allCategories.map((category) => (
+                <div key={category.title}>
+                  <button 
+                    onClick={() => toggleCategory(category.title)}
+                    className={`flex items-center gap-2 w-full text-left py-2 font-medium uppercase tracking-wider text-xs opacity-60 hover:opacity-100 transition-opacity ${isDark ? 'text-gray-300' : 'text-gray-600'}`}
+                  >
+                    <span className={`transform transition-transform duration-200 ${expandedCategory === category.title ? 'rotate-90' : ''}`}>
+                      ▶
+                    </span>
+                    {category.title}
+                  </button>
+                  
+                  <div className={`mt-2 space-y-1 overflow-hidden transition-all duration-300 ${expandedCategory === category.title ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                    {category.books.map((book) => {
+                      const prog = getBookProgress(book.id);
+                      return (
+                        <button
+                          key={book.id}
+                          onClick={() => onSelectBook(book)}
+                          className={`
+                            group w-full text-right px-4 py-3 rounded-md text-base font-hebrew-serif transition-all duration-200 border border-transparent relative overflow-hidden
+                            ${selectedBookId === book.id 
+                              ? 'bg-gray-200 dark:bg-gray-800 text-black dark:text-white font-bold'
+                              : 'hover:bg-gray-100 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+                            }
+                            ${isDark ? 'text-gray-300' : 'text-gray-700'}
+                          `}
+                        >
+                           <div className="flex justify-between items-center relative z-10">
+                              {prog > 0 && (
+                                <span className="text-[10px] font-sans opacity-40">{prog}%</span>
+                              )}
+                              <span>{book.title}</span>
+                           </div>
+                           {/* Progress Bar Background */}
+                           {prog > 0 && (
+                               <div 
+                                  className={`absolute bottom-0 right-0 top-0 opacity-5 ${isDark ? 'bg-white' : 'bg-black'}`}
+                                  style={{ width: `${prog}%` }}
+                               />
+                           )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+
+            {/* Existing Section for Online Chabad Library (for individual sections) */}
             <div className="mt-8">
               <button 
                 onClick={() => toggleCategory('Online Chabad Library')}
@@ -156,7 +225,7 @@ const Library: React.FC<LibraryProps> = ({ onSelectBook, selectedBookId, isOpen,
                 <span className={`transform transition-transform duration-200 ${expandedCategory === 'Online Chabad Library' ? 'rotate-90' : ''}`}>
                   ▶
                 </span>
-                Online Chabad Library
+                Online Chabad Library (Section Scraper)
               </button>
               
               <div className={`mt-2 space-y-3 overflow-hidden transition-all duration-300 ${expandedCategory === 'Online Chabad Library' ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
